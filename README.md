@@ -24,7 +24,7 @@ Python/Textual TUI installer intended to replace the legacy bash installer flow 
 1. Clone the repository and navigate to root:
 
    ```bash
-   git clone https://github.com/jakoolit/hyprland-dots.git
+   git clone https://github.com/LinuxBeginnings/hyprland-dots.git
    cd hyprland-dots/tui-installer
    ```
 

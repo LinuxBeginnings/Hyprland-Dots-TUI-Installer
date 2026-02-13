@@ -1065,7 +1065,11 @@ class InstallerOrchestrator:
             with tempfile.TemporaryDirectory(prefix="hyprdots-walls-") as td:
                 tmp = Path(td)
                 res = await run_cmd(
-                    ["git", "clone", "https://github.com/JaKooLit/Wallpaper-Bank.git"],
+                    [
+                        "git",
+                        "clone",
+                        "https://github.com/LinuxBeginnings/Wallpaper-Bank.git",
+                    ],
                     cwd=tmp,
                     log=log,
                 )
