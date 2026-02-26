@@ -1,0 +1,128 @@
+# ============================================================================
+#  KoolDots TUI Installer (2026)
+#  Project URL: https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer
+#  License: GNU GPLv3
+#  SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
+# release.yml — Build and publish a GitHub Release on every version tag.
+#
+# Trigger:  push of a tag matching "v*" (e.g. v2.3.20, v3.0.0)
+# Jobs:
+#   1. test    — Run the full quality-gate pipeline (typecheck / lint / tests)
+#   2. build   — Compile the standalone binary with PyInstaller (needs test)
+#   3. release — Create a GitHub Release and upload the binary (needs build)
+# ============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Job 1 — Quality gate (mirrors scripts/test_pipeline.sh)
+  # --------------------------------------------------------------------------
+  test:
+    name: Quality Gate
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+
+      - name: Sync dependencies (locked)
+        run: uv sync --locked --dev
+
+      - name: Type check (basedpyright)
+        run: uv run python -m basedpyright src
+
+      - name: Lint (ruff)
+        run: uv run ruff check src tests
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check src tests
+
+      - name: Tests (pytest)
+        run: PYTHONPATH="${PWD}" uv run python -m pytest -q -p no:cacheprovider
+
+  # --------------------------------------------------------------------------
+  # Job 2 — Compile standalone binary with PyInstaller
+  # --------------------------------------------------------------------------
+  build:
+    name: Build Binary
+    runs-on: ubuntu-24.04
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+
+      - name: Sync dependencies (locked, with dev extras for PyInstaller)
+        run: uv sync --locked --dev
+
+      - name: Build standalone binary
+        run: uv run pyinstaller build.spec
+
+      - name: Smoke-test binary
+        run: |
+          ./dist/dots-tui --help || true
+          # Ensure the binary is an ELF executable (not empty / corrupt)
+          file ./dist/dots-tui | grep -q "ELF"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dots-tui-linux-x86_64
+          path: dist/dots-tui
+          if-no-files-found: error
+          retention-days: 1
+
+  # --------------------------------------------------------------------------
+  # Job 3 — Create GitHub Release and attach the binary
+  # --------------------------------------------------------------------------
+  release:
+    name: Publish Release
+    runs-on: ubuntu-24.04
+    needs: build
+
+    steps:
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dots-tui-linux-x86_64
+          path: dist/
+
+      - name: Make binary executable
+        run: chmod +x dist/dots-tui
+
+      - name: Rename binary with version tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mv dist/dots-tui "dist/dots-tui-${TAG}-linux-x86_64"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2.4.2
+        with:
+          name: "dots-tui ${{ github.ref_name }}"
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/dots-tui-${{ github.ref_name }}-linux-x86_64
