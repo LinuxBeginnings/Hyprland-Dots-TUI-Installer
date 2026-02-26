@@ -25,9 +25,10 @@ def assert_safe_path(path: Path, *, home: Path | None = None) -> None:
     deletion when XDG_* env vars are misconfigured.
     """
 
-    p = _normalize(path)
-    if not p.is_absolute():
+    if not path.is_absolute():
         raise RuntimeError(f"Refusing to operate on non-absolute path: {path}")
+
+    p = _normalize(path)
 
     if str(p) == "/":
         raise RuntimeError("Refusing to operate on '/'")

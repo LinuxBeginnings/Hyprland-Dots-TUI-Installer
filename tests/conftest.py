@@ -65,6 +65,11 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeHome:
     )
 
 
+@pytest.fixture(autouse=True)
+def enforce_fake_home_for_all_tests(fake_home: FakeHome) -> None:
+    _ = fake_home
+
+
 @pytest.fixture()
 def prompt_replace_yes() -> Callable[[str, Path], bool]:
     def _prompt(_name: str, _path: Path) -> bool:
