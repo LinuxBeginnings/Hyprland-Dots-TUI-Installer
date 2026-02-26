@@ -43,7 +43,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Checkbox, Input, Label, RadioButton, RadioSet, Static
 
@@ -191,7 +190,6 @@ class _ExitScreen(ConfigScreen):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 class TestConfigScreenFormSubmission:
     """End-to-end tests for ConfigScreen form submission and validation."""
 

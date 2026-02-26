@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, Label
 
@@ -34,7 +33,6 @@ class ModalTestApp(App[str | None]):
         self.push_screen(self.modal, callback=callback)
 
 
-@pytest.mark.asyncio
 class TestInputModal:
     """Tests for the InputModal screen."""
 

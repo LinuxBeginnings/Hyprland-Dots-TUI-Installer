@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Label, Static
 
@@ -53,7 +52,6 @@ def _make_app(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 class TestConfirmScreen:
     """Full UI coverage for ConfirmScreen."""
 

@@ -43,3 +43,6 @@ typeCheckingMode = "basic"
 include = ["src"]
 exclude = ["**/__pycache__", "**/.venv", "build", "dist"]
 reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

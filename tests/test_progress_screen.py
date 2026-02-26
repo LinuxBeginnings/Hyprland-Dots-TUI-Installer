@@ -37,7 +37,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Label, Log, ProgressBar, Static
 
@@ -118,7 +117,6 @@ class _NoRun:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 class TestProgressScreenInitialState:
     """Verify the screen mounts with the expected initial DOM state."""
 
@@ -184,7 +182,6 @@ class TestProgressScreenInitialState:
                 assert len(log._lines) == 0
 
 
-@pytest.mark.asyncio
 class TestProgressScreenLogAppend:
     """Verify that ``_ui_log`` appends lines to the Log widget."""
 
@@ -244,7 +241,6 @@ class TestProgressScreenLogAppend:
                 assert len(log._lines) == len(messages)
 
 
-@pytest.mark.asyncio
 class TestProgressScreenSetStep:
     """Verify ``_set_step`` updates the step label."""
 
@@ -279,7 +275,6 @@ class TestProgressScreenSetStep:
                 assert bar.progress == 42
 
 
-@pytest.mark.asyncio
 class TestProgressScreenShowBackButton:
     """Verify ``_show_back_button`` makes the button visible."""
 
@@ -302,7 +297,6 @@ class TestProgressScreenShowBackButton:
                 assert back_btn.display is True
 
 
-@pytest.mark.asyncio
 class TestProgressScreenClassMethods:
     """Verify the ``for_install`` and ``for_repo_update`` factory classmethods."""
 
@@ -322,7 +316,6 @@ class TestProgressScreenClassMethods:
         assert screen._progress_task.config is None
 
 
-@pytest.mark.asyncio
 class TestProgressScreenActionBack:
     """Verify ``action_back`` behaviour in different states."""
 
