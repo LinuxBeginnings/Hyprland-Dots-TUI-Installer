@@ -103,4 +103,6 @@ def test_run_install_writes_only_to_fake_home(
     assert (fake_home.config / "hypr").is_dir()
     assert (fake_home.config / "rofi").is_dir()
     assert (fake_home.data / "rofi" / "themes").is_dir()
-    assert any("Finalizing" in x or "Complete" in x for x in logs) or True
+    assert any("Selected workflow: install" in x for x in logs), (
+        "Expected orchestrator to log the selected workflow; log was empty or missing expected line."
+    )
