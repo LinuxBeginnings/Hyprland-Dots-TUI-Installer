@@ -1,3 +1,9 @@
+# ============================================================================
+#  KoolDots TUI Installer (2026)
+#  Project URL: https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer
+#  License: GNU GPLv3
+#  SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
 """UI-level tests using Textual's testing framework.
 
 These tests verify the TUI screens render correctly and respond to user input.
