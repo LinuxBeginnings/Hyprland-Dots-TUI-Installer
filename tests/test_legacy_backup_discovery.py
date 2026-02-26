@@ -8,7 +8,10 @@
 
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
+
 import pytest
 
 from dots_tui.logic.backup import find_most_recent_backup
@@ -92,10 +95,11 @@ def test_find_most_recent_backup_multiple_legacy(
     backup2.mkdir()
     backup3.mkdir()
     
-    # Make backup2 the newest by mtime
-    import time
-    time.sleep(0.01)
-    backup2.touch()
+    # Explicitly set mtimes so backup2 is newest — no sleep needed
+    now = time.time()
+    os.utime(backup1, (now - 10, now - 10))  # oldest
+    os.utime(backup3, (now - 5,  now - 5))   # middle
+    os.utime(backup2, (now,      now))        # newest (should win)
     
     result = find_most_recent_backup(config_dir / "hypr")
     assert result == backup2
