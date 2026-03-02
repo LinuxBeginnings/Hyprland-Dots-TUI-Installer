@@ -82,7 +82,7 @@ jobs:
 
       - name: Smoke-test binary
         run: |
-          ./dist/dots-tui --help || true
+          ./dist/dots-tui --help
           # Ensure the binary is an ELF executable (not empty / corrupt)
           file ./dist/dots-tui | grep -q "ELF"
 
