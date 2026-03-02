@@ -181,7 +181,7 @@ class _ExitScreen(ConfigScreen):
         # Use minimal args — we only need this to exist for long enough to trigger exit.
         super().__init__(run_mode="install", dry_run=True)
 
-    async def _on_mount(self, event) -> None:  # type: ignore[override]
+    async def on_mount(self, event) -> None:  # type: ignore[override]
         self.app.exit()
 
 
