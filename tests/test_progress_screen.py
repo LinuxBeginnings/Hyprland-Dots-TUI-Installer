@@ -35,6 +35,7 @@ assertion.
 
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import patch
 
 from textual.app import App, ComposeResult
@@ -197,7 +198,8 @@ class TestProgressScreenLogAppend:
                 log = app.screen.query_one("#log", Log)
                 assert len(log._lines) == 0, "Log should start empty"
 
-                app.screen._ui_log("hello from test")
+                screen = cast(ProgressScreen, app.screen)
+                screen._ui_log("hello from test")
                 await pilot.pause()
 
                 assert len(log._lines) == 1
@@ -214,7 +216,8 @@ class TestProgressScreenLogAppend:
 
                 # A string with a bold ANSI escape (ESC[1m ... ESC[0m)
                 ansi_line = "\x1b[1mBold text\x1b[0m"
-                app.screen._ui_log(ansi_line)
+                screen = cast(ProgressScreen, app.screen)
+                screen._ui_log(ansi_line)
                 await pilot.pause()
 
                 log = app.screen.query_one("#log", Log)
@@ -233,8 +236,9 @@ class TestProgressScreenLogAppend:
                 await pilot.pause()
 
                 messages = ["step 1", "step 2", "step 3"]
+                screen = cast(ProgressScreen, app.screen)
                 for msg in messages:
-                    app.screen._ui_log(msg)
+                    screen._ui_log(msg)
                 await pilot.pause()
 
                 log = app.screen.query_one("#log", Log)
@@ -253,7 +257,8 @@ class TestProgressScreenSetStep:
             async with app.run_test() as pilot:
                 await pilot.pause()
 
-                app.screen._set_step("Copying files...")
+                screen = cast(ProgressScreen, app.screen)
+                screen._set_step("Copying files...")
                 await pilot.pause()
 
                 step = app.screen.query_one("#step", Label)
@@ -268,7 +273,8 @@ class TestProgressScreenSetStep:
             async with app.run_test() as pilot:
                 await pilot.pause()
 
-                app.screen._set_step("Working", percent=42)
+                screen = cast(ProgressScreen, app.screen)
+                screen._set_step("Working", percent=42)
                 await pilot.pause()
 
                 bar = app.screen.query_one("#bar", ProgressBar)
@@ -291,7 +297,8 @@ class TestProgressScreenShowBackButton:
                 back_btn = app.screen.query_one("#back", Button)
                 assert back_btn.display is False
 
-                app.screen._show_back_button()
+                screen = cast(ProgressScreen, app.screen)
+                screen._show_back_button()
                 await pilot.pause()
 
                 assert back_btn.display is True
@@ -355,9 +362,10 @@ class TestProgressScreenActionBack:
                 await pilot.pause()
 
                 # Mark the worker as finished.
-                app.screen._is_finished = True
+                screen = cast(ProgressScreen, app.screen)
+                screen._is_finished = True
 
-                app.screen.action_back()
+                screen.action_back()
                 await pilot.pause()
 
                 # App should have exited.

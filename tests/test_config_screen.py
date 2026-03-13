@@ -41,7 +41,7 @@ the change event instead of using click.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from textual.app import App, ComposeResult
 from textual.widgets import Checkbox, Input, Label, RadioButton, RadioSet, Static
@@ -92,7 +92,9 @@ class ConfigTestApp(App[None]):
 
     CSS = ""
 
-    def __init__(self, run_mode: str = "install", probe: ProbeResult | None = None) -> None:
+    def __init__(
+        self, run_mode: str = "install", probe: ProbeResult | None = None
+    ) -> None:
         super().__init__()
         self.probe_result: ProbeResult = probe or _make_probe()
         self.captured_config: InstallConfig | None = None
@@ -156,7 +158,7 @@ class _CaptureProgress:
         # and returns a stub screen that immediately exits when pushed.
         captured = self  # closure
 
-        def _fake_for_install(cfg: InstallConfig) -> MagicMock:
+        def _fake_for_install(cfg: InstallConfig) -> _ExitScreen:
             captured.config = cfg
             # Also store on the app for easy retrieval in tests.
             captured._app.captured_config = cfg
@@ -165,7 +167,9 @@ class _CaptureProgress:
             stub = _ExitScreen()
             return stub
 
-        self._patcher = patch.object(ProgressScreen, "for_install", staticmethod(_fake_for_install))
+        self._patcher = patch.object(
+            ProgressScreen, "for_install", staticmethod(_fake_for_install)
+        )
         self._patcher.start()
         return self
 
@@ -419,6 +423,5 @@ class TestConfigScreenFormSubmission:
                 validation = app.screen.query_one("#validation", Static)
                 content = str(validation.render())
                 assert any(
-                    kw in content
-                    for kw in ("Ubuntu", "Debian", "confirm", "continue")
+                    kw in content for kw in ("Ubuntu", "Debian", "confirm", "continue")
                 ), f"Expected Debian/Ubuntu validation message, got: {content!r}"
