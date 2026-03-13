@@ -19,7 +19,15 @@ Python/Textual TUI installer intended to replace the legacy bash installer flow 
 - **Python 3.11+** (for local development)
 - **`uv`** (modern Python dependency manager)
 
-## Quick Start (Development)
+## Quick Start (Recommended)
+
+The primary way to run this project is to download the latest prebuilt release binary from your home directory:
+
+```bash
+cd ~ && wget -O dots-tui "https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer/releases/latest/download/dots-tui-linux-x86_64" && chmod +x dots-tui && ./dots-tui
+```
+
+### Alternative: Development Setup (Git + uv)
 
 1. Clone the repository and navigate to root:
 
@@ -34,18 +42,6 @@ Python/Textual TUI installer intended to replace the legacy bash installer flow 
    uv sync --locked --dev
    uv run dots-tui
    ```
-
-### Alternative: Download Release Binary (Run from Home Directory)
-
-If you prefer not to use git, download the prebuilt release binary and run it directly.
-Use the stable latest alias URL below, which always points to the latest release package (no manual version needed).
-
-```bash
-cd ~
-wget -O dots-tui "https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer/releases/latest/download/dots-tui-linux-x86_64"
-chmod +x dots-tui
-./dots-tui
-```
 
 ### Command Line Flags
 
