@@ -42,7 +42,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Button, Label, Log, ProgressBar, Static
 
 from dots_tui.logic.models import InstallConfig
-from dots_tui.screens.progress import ProgressScreen, ProgressTask
+from dots_tui.screens.progress import ProgressScreen
 
 
 # ---------------------------------------------------------------------------

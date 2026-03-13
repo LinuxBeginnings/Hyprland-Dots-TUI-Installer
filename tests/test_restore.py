@@ -13,6 +13,7 @@ Covers:
   - _extract_exec_once()
   - _extract_rules()
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,6 +34,7 @@ from dots_tui.logic.restore import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _logs() -> tuple[list[str], Callable[[str], None]]:
     """Return a (log_list, log_fn) pair for capturing log output."""
     captured: list[str] = []
@@ -50,6 +52,7 @@ def _confirm_no(_msg: str, _yes: str, _no: str, _default: bool) -> bool:
 # ---------------------------------------------------------------------------
 # restore_user_scripts()
 # ---------------------------------------------------------------------------
+
 
 class TestRestoreUserScripts:
     """Tests for restore_user_scripts()."""
@@ -94,7 +97,7 @@ class TestRestoreUserScripts:
             log=log,
         )
 
-        assert any("Express" in l for l in logs)
+        assert any("Express" in line for line in logs)
         assert not (hypr / "UserScripts" / "RofiBeats.sh").exists()
 
     def test_user_confirms_restores_script(
@@ -117,7 +120,7 @@ class TestRestoreUserScripts:
         dst = hypr / "UserScripts" / "RofiBeats.sh"
         assert dst.exists()
         assert dst.read_text() == "#!/bin/bash\necho hi\n"
-        assert any("[OK]" in l and "RofiBeats.sh" in l for l in logs)
+        assert any("[OK]" in line and "RofiBeats.sh" in line for line in logs)
 
     def test_user_declines_skips_script(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -137,11 +140,9 @@ class TestRestoreUserScripts:
         )
 
         assert not (hypr / "UserScripts" / "Weather.sh").exists()
-        assert any("[NOTE]" in l and "Weather.sh" in l for l in logs)
+        assert any("[NOTE]" in line and "Weather.sh" in line for line in logs)
 
-    def test_missing_script_in_backup_is_silently_skipped(
-        self, tmp_path: Path
-    ) -> None:
+    def test_missing_script_in_backup_is_silently_skipped(self, tmp_path: Path) -> None:
         """Scripts listed in the candidate list but absent from backup are ignored."""
         backup, hypr = self._make_dirs(tmp_path)
         # Only RofiBeats.sh is absent — no files at all in UserScripts.
@@ -156,7 +157,7 @@ class TestRestoreUserScripts:
         )
 
         # No [OK] lines — nothing to restore, no crash.
-        assert not any("[OK]" in l for l in logs)
+        assert not any("[OK]" in line for line in logs)
 
     def test_no_prompt_handler_uses_default_no(self, tmp_path: Path) -> None:
         """Without a prompt handler, default is False (skip) for user scripts."""
@@ -174,12 +175,13 @@ class TestRestoreUserScripts:
 
         # Script should NOT be copied (default_yes=False for scripts).
         assert not (hypr / "UserScripts" / "RofiBeats.sh").exists()
-        assert any("[WARN]" in l for l in logs)
+        assert any("[WARN]" in line for line in logs)
 
 
 # ---------------------------------------------------------------------------
 # restore_hypr_files()
 # ---------------------------------------------------------------------------
+
 
 class TestRestoreHyprFiles:
     """Tests for restore_hypr_files() (hyprlock.conf / hypridle.conf)."""
@@ -205,7 +207,7 @@ class TestRestoreHyprFiles:
             log=log,
         )
 
-        assert any("Express" in l for l in logs)
+        assert any("Express" in line for line in logs)
         assert not (hypr / "hyprlock.conf").exists()
 
     def test_confirms_restores_hyprlock(
@@ -226,7 +228,7 @@ class TestRestoreHyprFiles:
         )
 
         assert (hypr / "hyprlock.conf").read_text() == "# my lock config\n"
-        assert any("[OK]" in l and "hyprlock.conf" in l for l in logs)
+        assert any("[OK]" in line and "hyprlock.conf" in line for line in logs)
 
     def test_confirms_restores_hypridle(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -246,7 +248,7 @@ class TestRestoreHyprFiles:
         )
 
         assert (hypr / "hypridle.conf").read_text() == "# idle\n"
-        assert any("[OK]" in l and "hypridle.conf" in l for l in logs)
+        assert any("[OK]" in line and "hypridle.conf" in line for line in logs)
 
     def test_declines_skips_files(self, tmp_path: Path) -> None:
         """User declining leaves files untouched."""
@@ -265,8 +267,8 @@ class TestRestoreHyprFiles:
 
         assert not (hypr / "hyprlock.conf").exists()
         assert not (hypr / "hypridle.conf").exists()
-        assert any("[NOTE]" in l and "hyprlock.conf" in l for l in logs)
-        assert any("[NOTE]" in l and "hypridle.conf" in l for l in logs)
+        assert any("[NOTE]" in line and "hyprlock.conf" in line for line in logs)
+        assert any("[NOTE]" in line and "hypridle.conf" in line for line in logs)
 
     def test_missing_files_in_backup_silently_skipped(self, tmp_path: Path) -> None:
         """Files absent from backup are silently skipped without error."""
@@ -282,13 +284,14 @@ class TestRestoreHyprFiles:
             log=log,
         )
 
-        assert not any("[OK]" in l for l in logs)
-        assert not any("[ERROR]" in l for l in logs)
+        assert not any("[OK]" in line for line in logs)
+        assert not any("[ERROR]" in line for line in logs)
 
 
 # ---------------------------------------------------------------------------
 # _extract_exec_once()
 # ---------------------------------------------------------------------------
+
 
 class TestExtractExecOnce:
     """Tests for the _extract_exec_once() parser."""
@@ -309,14 +312,14 @@ UNRELATED = value
 
     def test_no_commented_in_active_mode(self) -> None:
         result = _extract_exec_once(self.SAMPLE, commented=False)
-        assert not any("disabled-app" in l for l in result)
+        assert not any("disabled-app" in line for line in result)
 
     def test_commented_lines_mode(self) -> None:
         result = _extract_exec_once(self.SAMPLE, commented=True)
         # Should return the uncommented form of the commented exec-once
-        assert any("disabled-app" in l for l in result)
+        assert any("disabled-app" in line for line in result)
         # Active lines must NOT appear
-        assert not any("waybar" in l for l in result)
+        assert not any("waybar" in line for line in result)
 
     def test_empty_text_returns_empty_list(self) -> None:
         assert _extract_exec_once("", commented=False) == []
@@ -335,6 +338,7 @@ UNRELATED = value
 # ---------------------------------------------------------------------------
 # _extract_rules()
 # ---------------------------------------------------------------------------
+
 
 class TestExtractRules:
     """Tests for the _extract_rules() parser."""
@@ -355,23 +359,23 @@ RANDOM = stuff
 
     def test_active_excludes_commented(self) -> None:
         result = _extract_rules(self.SAMPLE, commented=False)
-        assert not any("kitty" in l for l in result)
-        assert not any("rofi" in l for l in result)
+        assert not any("kitty" in line for line in result)
+        assert not any("rofi" in line for line in result)
 
     def test_active_excludes_unrelated_lines(self) -> None:
         result = _extract_rules(self.SAMPLE, commented=False)
-        assert not any("exec-once" in l for l in result)
-        assert not any("RANDOM" in l for l in result)
+        assert not any("exec-once" in line for line in result)
+        assert not any("RANDOM" in line for line in result)
 
     def test_commented_windowrule_and_layerrule(self) -> None:
         result = _extract_rules(self.SAMPLE, commented=True)
-        assert any("kitty" in l for l in result)
-        assert any("rofi" in l for l in result)
+        assert any("kitty" in line for line in result)
+        assert any("rofi" in line for line in result)
 
     def test_commented_excludes_active(self) -> None:
         result = _extract_rules(self.SAMPLE, commented=True)
-        assert not any("pavucontrol" in l for l in result)
-        assert not any("waybar" in l for l in result)
+        assert not any("pavucontrol" in line for line in result)
+        assert not any("waybar" in line for line in result)
 
     def test_empty_text(self) -> None:
         assert _extract_rules("", commented=False) == []
@@ -381,6 +385,7 @@ RANDOM = stuff
 # ---------------------------------------------------------------------------
 # _compose_overlay_from_backup() — legacy path (startup type)
 # ---------------------------------------------------------------------------
+
 
 class TestComposeOverlayStartup:
     """Tests for _compose_overlay_from_backup() with overlay_type='startup'."""
@@ -479,6 +484,7 @@ class TestComposeOverlayStartup:
 # _compose_overlay_from_backup() — legacy path (windowrules type)
 # ---------------------------------------------------------------------------
 
+
 class TestComposeOverlayWindowRules:
     """Tests for _compose_overlay_from_backup() with overlay_type='windowrules'."""
 
@@ -489,8 +495,7 @@ class TestComposeOverlayWindowRules:
 
         old_user = tmp_path / "old_WindowRules.conf"
         old_user.write_text(
-            "windowrule = float, class:pavucontrol\n"
-            "windowrule = tile, class:kitty\n"
+            "windowrule = float, class:pavucontrol\nwindowrule = tile, class:kitty\n"
         )
 
         new_user = tmp_path / "UserConfigs" / "WindowRules.conf"
