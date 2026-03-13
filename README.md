@@ -24,16 +24,28 @@ Python/Textual TUI installer intended to replace the legacy bash installer flow 
 1. Clone the repository and navigate to root:
 
    ```bash
-   git clone https://github.com/LinuxBeginnings/hyprland-dots.git
-   cd hyprland-dots/tui-installer
+   git clone https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer.git
+   cd Hyprland-Dots-TUI-Installer
    ```
 
 2. Sync dependencies and run:
 
    ```bash
    uv sync --locked --dev
-   uv run python -m dots_tui
+   uv run dots-tui
    ```
+
+### Alternative: Download Release Binary (Run from Home Directory)
+
+If you prefer not to use git, download the prebuilt release binary and run it directly.
+Use the stable latest alias URL below, which always points to the latest release package (no manual version needed).
+
+```bash
+cd ~
+wget -O dots-tui "https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer/releases/latest/download/dots-tui-linux-x86_64"
+chmod +x dots-tui
+./dots-tui
+```
 
 ### Command Line Flags
 
