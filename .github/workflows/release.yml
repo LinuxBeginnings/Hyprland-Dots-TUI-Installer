@@ -20,6 +20,9 @@ on:
     tags:
       - "v*"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 permissions:
   contents: write
 
@@ -33,10 +36,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/uv.lock"
@@ -66,10 +69,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/uv.lock"
@@ -87,7 +90,7 @@ jobs:
           file ./dist/dots-tui | grep -q "ELF"
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dots-tui-linux-x86_64
           path: dist/dots-tui
@@ -104,7 +107,7 @@ jobs:
 
     steps:
       - name: Download binary artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dots-tui-linux-x86_64
           path: dist/
@@ -112,17 +115,26 @@ jobs:
       - name: Make binary executable
         run: chmod +x dist/dots-tui
 
-      - name: Rename binary with version tag
+      - name: Materialize stable and versioned release assets
         run: |
           TAG="${GITHUB_REF_NAME}"
-          mv dist/dots-tui "dist/dots-tui-${TAG}-linux-x86_64"
+          STABLE_NAME="dots-tui-linux-x86_64"
+          VERSIONED_NAME="dots-tui-${TAG}-linux-x86_64"
+
+          test -f dist/dots-tui
+          cp dist/dots-tui "dist/${STABLE_NAME}"
+          cp dist/dots-tui "dist/${VERSIONED_NAME}"
+          test -f "dist/${STABLE_NAME}"
+          test -f "dist/${VERSIONED_NAME}"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2.4.2
+        uses: softprops/action-gh-release@v2
         with:
           name: "dots-tui ${{ github.ref_name }}"
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
+          overwrite_files: true
           files: |
+            dist/dots-tui-linux-x86_64
             dist/dots-tui-${{ github.ref_name }}-linux-x86_64
