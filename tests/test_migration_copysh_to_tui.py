@@ -24,7 +24,7 @@ def test_migration_from_copysh_discovers_legacy_backup(
     prompt_confirm_yes,
 ) -> None:
     """Test migration scenario: user ran copy.sh previously, now runs TUI installer.
-    
+
     Scenario:
     1. User previously ran copy.sh which created legacy format backups
     2. User deletes their hypr config
@@ -71,15 +71,9 @@ def test_migration_from_copysh_discovers_legacy_backup(
     )
     write_text(legacy_backup / "animations" / "legacy.conf", "legacy anim\n")
     write_text(legacy_backup / "Monitor_Profiles" / "legacy.conf", "legacy prof\n")
-    write_text(
-        legacy_backup / "wallpaper_effects" / "legacy.conf", "legacy wall\n"
-    )
-    write_text(
-        legacy_backup / "UserConfigs" / "UserSettings.conf", "legacy custom\n"
-    )
-    write_text(
-        legacy_backup / "UserConfigs" / "Startup_Apps.conf", "exec-once = bar\n"
-    )
+    write_text(legacy_backup / "wallpaper_effects" / "legacy.conf", "legacy wall\n")
+    write_text(legacy_backup / "UserConfigs" / "UserSettings.conf", "legacy custom\n")
+    write_text(legacy_backup / "UserConfigs" / "Startup_Apps.conf", "exec-once = bar\n")
 
     # User deleted their hypr directory
     # (so TUI creates a fresh one and should restore from legacy backup)
@@ -136,14 +130,16 @@ def test_migration_from_copysh_discovers_legacy_backup(
     )
 
     # Verify: Legacy backup was discovered
-    assert any("Found existing backup from previous installation" in line for line in logs)
+    assert any(
+        "Found existing backup from previous installation" in line for line in logs
+    )
     assert any("hypr-backup-back-up_0128_1200" in line for line in logs)
 
     # Verify: Assets were restored from legacy backup
     assert (fake_home.config / "hypr" / "animations").is_dir()
     assert (fake_home.config / "hypr" / "Monitor_Profiles").is_dir()
     assert (fake_home.config / "hypr" / "wallpaper_effects").is_dir()
-    
+
     assert "legacy anim" in read_text(
         fake_home.config / "hypr" / "animations" / "legacy.conf"
     )
