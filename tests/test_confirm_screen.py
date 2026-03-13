@@ -37,6 +37,7 @@ class ConfirmTestApp(App[bool | None]):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_app(
     message: str = "Are you sure?",
     yes: str = "Yes",
