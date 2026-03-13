@@ -298,7 +298,7 @@ class TestProgressScreenShowBackButton:
 
 
 class TestProgressScreenClassMethods:
-    """Verify the ``for_install`` and ``for_repo_update`` factory classmethods."""
+    """Verify progress screen factory classmethods."""
 
     async def test_for_install_sets_kind_and_config(self) -> None:
         """``for_install`` creates a ProgressTask with kind='install' and the config."""
@@ -313,6 +313,13 @@ class TestProgressScreenClassMethods:
         screen = ProgressScreen.for_repo_update()
 
         assert screen._progress_task.kind == "update"
+        assert screen._progress_task.config is None
+
+    async def test_for_repo_download_sets_kind_download(self) -> None:
+        """``for_repo_download`` creates a ProgressTask with kind='download' and no config."""
+        screen = ProgressScreen.for_repo_download()
+
+        assert screen._progress_task.kind == "download"
         assert screen._progress_task.config is None
 
 

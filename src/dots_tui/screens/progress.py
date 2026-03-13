@@ -27,7 +27,7 @@ LogFn = Callable[[str], None]
 
 @dataclass(frozen=True)
 class ProgressTask:
-    kind: str  # install|update
+    kind: str  # install|update|download
     config: InstallConfig | None = None
 
 
@@ -58,6 +58,10 @@ class ProgressScreen(Screen[None]):
     @classmethod
     def for_repo_update(cls) -> "ProgressScreen":
         return cls(task=ProgressTask(kind="update"))
+
+    @classmethod
+    def for_repo_download(cls) -> "ProgressScreen":
+        return cls(task=ProgressTask(kind="download"))
 
     def compose(self):
         yield Container(
@@ -248,8 +252,14 @@ class ProgressScreen(Screen[None]):
     async def _run(self) -> None:
         orch = InstallerOrchestrator()
 
+        prefix = "install"
+        if self._progress_task.kind == "update":
+            prefix = "update"
+        elif self._progress_task.kind == "download":
+            prefix = "download"
+
         log_fn, log_file = orch.create_log_sink(
-            prefix=("update" if self._progress_task.kind == "update" else "install"),
+            prefix=prefix,
             ui_log=self._ui_log,
         )
 
@@ -258,6 +268,14 @@ class ProgressScreen(Screen[None]):
                 self._set_step("Updating repository...", percent=5)
                 await orch.update_repo(
                     log=log_fn, log_file=log_file, set_step=self._set_step
+                )
+                self._set_step("Done.", percent=100)
+            elif self._progress_task.kind == "download":
+                self._set_step("Downloading repository...", percent=5)
+                await orch.download_repo(
+                    log=log_fn,
+                    log_file=log_file,
+                    set_step=self._set_step,
                 )
                 self._set_step("Done.", percent=100)
             else:
