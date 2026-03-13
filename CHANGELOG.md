@@ -1,5 +1,15 @@
 ## Hyprland Dotfiles TUI Installer
 
+## 0.2.0 - 3/13/2026
+
+- Added standalone operation by searching `~/Hyprland-Dots` when running outside the repository.
+- Added a shallow repository download action in the installer menu.
+- Added a GitHub Actions release workflow for version tags.
+- Improved path safety by validating absolute paths before normalization.
+- Fixed callback protocols and related tests for strict type checking compatibility.
+- Expanded test coverage for CLI parsing, UI screens, restore/path safety, and backup discovery.
+- Updated setup documentation and release binary instructions in `README.md`.
+
 ## 3/12/2026
 ### Summary
 - Add GitHub Actions release workflow for version tags
