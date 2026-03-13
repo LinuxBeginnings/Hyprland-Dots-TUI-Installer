@@ -1,3 +1,9 @@
+# ============================================================================
+#  KoolDots TUI Installer (2026)
+#  Project URL: https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer
+#  License: GNU GPLv3
+#  SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
 [project]
 name = "dots-tui"
 version = "2.3.20"
@@ -37,3 +43,6 @@ typeCheckingMode = "basic"
 include = ["src"]
 exclude = ["**/__pycache__", "**/.venv", "build", "dist"]
 reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

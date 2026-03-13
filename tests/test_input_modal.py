@@ -1,8 +1,13 @@
+# ============================================================================
+#  KoolDots TUI Installer (2026)
+#  Project URL: https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer
+#  License: GNU GPLv3
+#  SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
 """Tests for the InputModal screen and password prompting logic."""
 
 from __future__ import annotations
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, Label
 
@@ -28,7 +33,6 @@ class ModalTestApp(App[str | None]):
         self.push_screen(self.modal, callback=callback)
 
 
-@pytest.mark.asyncio
 class TestInputModal:
     """Tests for the InputModal screen."""
 

@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# ============================================================================
+#  KoolDots TUI Installer (2026)
+#  Project URL: https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer
+#  License: GNU GPLv3
+#  SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
 
 from __future__ import annotations
 
@@ -7,9 +13,9 @@ import os
 
 from rich_argparse import RichHelpFormatter
 
-from dots_tui.app import run
 
-if __name__ == "__main__":
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments. Accepts an optional argv list for testing."""
     parser = argparse.ArgumentParser(
         prog="dots_tui",
         description="[bold blue]Hyprland-Dots[/bold blue] [magenta]TUI Installer[/magenta]",
@@ -43,7 +49,14 @@ if __name__ == "__main__":
         action="store_true",
         help="Start in repo update mode (skip main menu)",
     )
-    args = parser.parse_args()
+
+    return parser.parse_args(argv)
+
+
+if __name__ == "__main__":
+    from dots_tui.app import run
+
+    args = parse_args()
 
     start = None
     if args.upgrade:

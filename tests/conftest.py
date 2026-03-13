@@ -1,3 +1,9 @@
+# ============================================================================
+#  KoolDots TUI Installer (2026)
+#  Project URL: https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer
+#  License: GNU GPLv3
+#  SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -57,6 +63,11 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeHome:
         pictures=pictures,
         copy_logs=copy_logs,
     )
+
+
+@pytest.fixture(autouse=True)
+def enforce_fake_home_for_all_tests(fake_home: FakeHome) -> None:
+    _ = fake_home
 
 
 @pytest.fixture()
