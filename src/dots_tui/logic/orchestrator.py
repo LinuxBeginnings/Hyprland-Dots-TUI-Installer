@@ -101,6 +101,12 @@ class InstallerOrchestrator:
         for candidate in (start, *start.parents):
             if (candidate / "config").is_dir() and (candidate / "scripts").is_dir():
                 return candidate
+
+        home = Path.home()
+        for candidate in (home / "Hyprland-Dots", home / "hyprland-dots"):
+            if (candidate / "config").is_dir() and (candidate / "scripts").is_dir():
+                return candidate
+
         return start
 
     def _assert_repo_root(self) -> None:
@@ -200,10 +206,11 @@ class InstallerOrchestrator:
         set_step: Callable[[str, int | None], None],
     ) -> None:
         self._assert_repo_root()
-        expected_name = "Hyprland-Dots"
-        if self.repo_root.name != expected_name:
+        expected_names = {"Hyprland-Dots", "hyprland-dots"}
+        if self.repo_root.name not in expected_names:
             raise RuntimeError(
-                f"This helper must be run from the {expected_name} directory. Current: {self.repo_root}"
+                "This helper must be run from Hyprland-Dots or hyprland-dots directory. "
+                f"Current: {self.repo_root}"
             )
         set_step("Starting repository update...", 5)
         log("[INFO] Starting repository update...")
