@@ -28,7 +28,7 @@ class LogFn(Protocol):
             print(message)
     """
 
-    def __call__(self, message: str) -> None: ...
+    def __call__(self, message: str, /) -> None: ...
 
 
 class PromptReplaceFn(Protocol):
@@ -40,7 +40,7 @@ class PromptReplaceFn(Protocol):
         True if user wants to replace, False to skip
     """
 
-    def __call__(self, name: str, path: Path) -> bool: ...
+    def __call__(self, name: str, path: Path, /) -> bool: ...
 
 
 class PromptConfirmFn(Protocol):
@@ -55,7 +55,14 @@ class PromptConfirmFn(Protocol):
         True if user confirmed, False otherwise
     """
 
-    def __call__(self, message: str, yes: str, no: str, default_yes: bool) -> bool: ...
+    def __call__(
+        self,
+        message: str,
+        yes: str,
+        no: str,
+        default_yes: bool,
+        /,
+    ) -> bool: ...
 
 
 class PromptPasswordFn(Protocol):
@@ -68,7 +75,7 @@ class PromptPasswordFn(Protocol):
         The entered password or None if cancelled
     """
 
-    def __call__(self, label: str) -> str | None: ...
+    def __call__(self, label: str, /) -> str | None: ...
 
 
 @dataclass(frozen=True)

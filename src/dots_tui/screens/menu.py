@@ -93,6 +93,7 @@ class MenuScreen(Screen[None]):
             Button("Upgrade", id="upgrade"),
             Button("Express", id="express"),
             Button("Update Repo", id="update"),
+            Button("Download Repo", id="download"),
             Button("Quit", id="quit", variant="error"),
             Static("hjkl/arrows/tab: nav • space: select • q: quit", id="help"),
             id="menu",
@@ -131,5 +132,7 @@ class MenuScreen(Screen[None]):
                 )
             case "update":
                 self.app.push_screen(ProgressScreen.for_repo_update())
+            case "download":
+                self.app.push_screen(ProgressScreen.for_repo_download())
             case "quit":
                 self.app.exit()

@@ -89,6 +89,9 @@ PHASE2_CONFIGS = [
     "wlogout",
 ]
 
+DOTFILES_REPO_URL = "https://github.com/LinuxBeginnings/Hyprland-Dots"
+DOTFILES_REPO_DIRNAME = "Hyprland-Dots"
+
 
 class InstallerOrchestrator:
     def __init__(self) -> None:
@@ -122,6 +125,8 @@ class InstallerOrchestrator:
         ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         if prefix == "update":
             return self._copy_logs_dir() / f"update-{ts}_git.log"
+        if prefix == "download":
+            return self._copy_logs_dir() / f"download-{ts}_git.log"
         return self._copy_logs_dir() / f"install-{ts}_dotfiles.log"
 
     def create_log_sink(self, *, prefix: str, ui_log: LogFn) -> tuple[LogFn, Path]:
@@ -297,6 +302,55 @@ class InstallerOrchestrator:
             )
 
         set_step("Update complete.", 100)
+
+    async def download_repo(
+        self,
+        *,
+        log: LogFn,
+        log_file: Path,
+        set_step: Callable[[str, int | None], None],
+    ) -> None:
+        set_step("Starting repository download...", 5)
+        log("[INFO] Starting repository download...")
+
+        set_step("Checking git availability...", 15)
+        if not which("git"):
+            raise RuntimeError("git not found")
+
+        target = Path.home() / DOTFILES_REPO_DIRNAME
+
+        set_step("Checking destination...", 25)
+        if target.exists():
+            raise RuntimeError(
+                f"Destination already exists: {target}. "
+                "Use Update Repo or remove the directory first."
+            )
+
+        set_step("Cloning Hyprland-Dots...", 55)
+        clone_res = await run_cmd(
+            ["git", "clone", "--depth", "1", DOTFILES_REPO_URL, str(target)],
+            log=log,
+        )
+        if clone_res.returncode != 0:
+            raise RuntimeError(f"git clone failed (exit {clone_res.returncode})")
+
+        set_step("Verifying clone...", 85)
+        head_res = await run_cmd(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=target,
+            log=log,
+        )
+        head = head_res.output.strip() if head_res.returncode == 0 else "unknown"
+
+        log("----------------------------------------")
+        log("Summary:")
+        log(f"  Repo URL   : {DOTFILES_REPO_URL}")
+        log(f"  Target dir : {target}")
+        log(f"  Log file   : {log_file}")
+        log(f"  HEAD       : {head}")
+        log("----------------------------------------")
+
+        set_step("Download complete.", 100)
 
     async def _pre_authenticate_sudo(
         self,

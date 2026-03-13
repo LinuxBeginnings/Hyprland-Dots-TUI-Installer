@@ -48,6 +48,7 @@ class TestMenuScreen:
             assert "upgrade" in button_ids
             assert "express" in button_ids
             assert "update" in button_ids
+            assert "download" in button_ids
             assert "quit" in button_ids
 
     async def test_menu_keyboard_navigation(self, app: InstallerApp) -> None:
@@ -76,8 +77,8 @@ class TestMenuScreen:
     async def test_quit_button_exits(self, app: InstallerApp) -> None:
         """Test that pressing quit exits the application."""
         async with app.run_test() as pilot:
-            # Click the quit button
-            await pilot.click("#quit")
+            # Use keybinding to avoid viewport-dependent click coordinates.
+            await pilot.press("q")
             # App should be exiting
             assert app._exit is True or app.return_value is None
 
