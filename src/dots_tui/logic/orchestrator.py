@@ -1223,7 +1223,7 @@ class InstallerOrchestrator:
 
             if dst.exists() and (dst / "shell.qml").exists():
                 try:
-                    assert_safe_path(dst / "shell.qml")
+                    assert_safe_path(dst / "shell.qml", home=target_config_root.parent)
                     (dst / "shell.qml").unlink(missing_ok=True)
                     log("[NOTE] Removed legacy quickshell shell.qml")
                 except Exception:
