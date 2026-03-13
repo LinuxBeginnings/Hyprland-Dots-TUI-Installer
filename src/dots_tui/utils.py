@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import shutil
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -154,6 +155,7 @@ async def run_cmd(
 
     assert process.stdout is not None
     buf: list[str] = []
+    cancelled = False
     try:
         while True:
             line = await process.stdout.readline()
@@ -163,7 +165,16 @@ async def run_cmd(
             buf.append(decoded)
             if log:
                 log(_sanitize_for_tui(decoded))
+    except asyncio.CancelledError:
+        cancelled = True
+        if process.returncode is None:
+            process.terminate()
+        raise
     finally:
-        returncode = await process.wait()
+        if cancelled:
+            with suppress(asyncio.CancelledError):
+                await process.wait()
+        else:
+            returncode = await process.wait()
 
     return CmdResult(argv=argv, returncode=returncode, output="\n".join(buf))

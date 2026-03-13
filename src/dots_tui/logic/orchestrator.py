@@ -50,10 +50,43 @@ from dots_tui.logic.system import (
     version_gte,
     replace_kb_layout,
 )
-from dots_tui.utils import is_root, run_cmd, which
+import dots_tui.utils as utils
 
 from dots_tui.logic.plan import PlanCollector
 from dots_tui.logic.path_safety import assert_safe_path
+
+
+def is_root() -> bool:
+    return utils.is_root()
+
+
+def which(cmd: str) -> str | None:
+    return utils.which(cmd)
+
+
+async def run_cmd(
+    argv: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    log: LogFn | None = None,
+    input_text: str | None = None,
+) -> utils.CmdResult:
+    if input_text is None:
+        return await utils.run_cmd(
+            argv,
+            cwd=cwd,
+            env=env,
+            log=log,
+        )
+
+    return await utils.run_cmd(
+        argv,
+        cwd=cwd,
+        env=env,
+        log=log,
+        input_text=input_text,
+    )
 
 
 # ============================================================================
