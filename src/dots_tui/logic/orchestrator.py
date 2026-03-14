@@ -1424,50 +1424,44 @@ class InstallerOrchestrator:
                 txt = "".join(out)
                 hyprlock_file.write_text(txt, encoding="utf-8")
 
-        if (
-            cfg.enable_asus
-            or cfg.enable_blueman
-            or cfg.enable_ags
-            or cfg.enable_quickshell
-        ):
-            overlay = staging_config / "hypr" / "configs" / "Startup_Apps.conf"
-            overlay.parent.mkdir(parents=True, exist_ok=True)
-            overlay.touch(exist_ok=True)
-            existing = overlay.read_text(encoding="utf-8", errors="replace")
+        overlay = staging_config / "hypr" / "configs" / "Startup_Apps.conf"
+        overlay.parent.mkdir(parents=True, exist_ok=True)
+        overlay.touch(exist_ok=True)
+        existing = overlay.read_text(encoding="utf-8", errors="replace")
 
-            def add(line: str) -> None:
-                nonlocal existing
-                if line not in existing:
-                    overlay.open("a", encoding="utf-8").write(line)
-                    existing += line
+        def add(line: str) -> None:
+            nonlocal existing
+            if line not in existing:
+                overlay.open("a", encoding="utf-8").write(line)
+                existing += line
 
-            if cfg.enable_asus and which("asusctl"):
-                add("exec-once = rog-control-center\n")
+        if cfg.enable_asus and which("asusctl"):
+            add("exec-once = rog-control-center\n")
 
-            if cfg.enable_blueman and which("blueman-applet"):
-                add("exec-once = blueman-applet\n")
+        if cfg.enable_blueman and which("blueman-applet"):
+            add("exec-once = blueman-applet\n")
 
-            if cfg.enable_ags and which("ags"):
-                add("exec-once = ags\n")
-                # Also uncomment ags lines in Refresh scripts
-                for script in ["RefreshNoWaybar.sh", "Refresh.sh"]:
-                    script_path = staging_config / "hypr" / "scripts" / script
-                    if script_path.exists():
-                        txt = script_path.read_text(encoding="utf-8", errors="replace")
-                        txt = re.sub(r"#ags -q && ags &", "ags -q && ags &", txt)
-                        script_path.write_text(txt, encoding="utf-8")
+        if cfg.enable_ags and which("ags"):
+            add("exec-once = ags\n")
+            # Also uncomment ags lines in Refresh scripts
+            for script in ["RefreshNoWaybar.sh", "Refresh.sh"]:
+                script_path = staging_config / "hypr" / "scripts" / script
+                if script_path.exists():
+                    txt = script_path.read_text(encoding="utf-8", errors="replace")
+                    txt = re.sub(r"#ags -q && ags &", "ags -q && ags &", txt)
+                    script_path.write_text(txt, encoding="utf-8")
 
-            if cfg.enable_quickshell and which("qs"):
-                add("exec-once = qs\n")
-                # Also uncomment quickshell lines in Refresh scripts
-                for script in ["RefreshNoWaybar.sh", "Refresh.sh"]:
-                    script_path = staging_config / "hypr" / "scripts" / script
-                    if script_path.exists():
-                        txt = script_path.read_text(encoding="utf-8", errors="replace")
-                        txt = re.sub(r"#pkill qs && qs &", "pkill qs && qs &", txt)
-                        script_path.write_text(txt, encoding="utf-8")
+        if cfg.enable_quickshell and which("qs"):
+            add("exec-once = qs\n")
+            # Also uncomment quickshell lines in Refresh scripts
+            for script in ["RefreshNoWaybar.sh", "Refresh.sh"]:
+                script_path = staging_config / "hypr" / "scripts" / script
+                if script_path.exists():
+                    txt = script_path.read_text(encoding="utf-8", errors="replace")
+                    txt = re.sub(r"#pkill qs && qs &", "pkill qs && qs &", txt)
+                    script_path.write_text(txt, encoding="utf-8")
 
-            add("exec-once = $scriptsDir/KeybindsLayoutInit.sh\n")
+        add("exec-once = $scriptsDir/KeybindsLayoutInit.sh\n")
 
     async def _install_wallpapers(
         self, cfg: InstallConfig, staging_wallpapers: Path, log: LogFn
