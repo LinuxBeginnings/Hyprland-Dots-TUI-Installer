@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import gzip
 import re
 import shutil
 import tempfile
@@ -30,6 +31,7 @@ from dots_tui.logic.models import (
     InstallerState,
     LogFn,
     PromptConfirmFn,
+    PromptInputFn,
     PromptPasswordFn,
     PromptReplaceFn,
 )
@@ -124,6 +126,7 @@ PHASE2_CONFIGS = [
 
 DOTFILES_REPO_URL = "https://github.com/LinuxBeginnings/Hyprland-Dots"
 DOTFILES_REPO_DIRNAME = "Hyprland-Dots"
+WAYBAR_WEATHER_DIRNAME = "waybar-weather"
 
 
 class InstallerOrchestrator:
@@ -138,6 +141,13 @@ class InstallerOrchestrator:
             if (candidate / "config").is_dir() and (candidate / "scripts").is_dir():
                 return candidate
 
+        # Support running from the TUI wrapper repository root where
+        # Hyprland-Dots is vendored as a child directory.
+        for child_name in ("Hyprland-Dots", "hyprland-dots"):
+            child = start / child_name
+            if (child / "config").is_dir() and (child / "scripts").is_dir():
+                return child
+
         home = Path.home()
         for candidate in (home / "Hyprland-Dots", home / "hyprland-dots"):
             if (candidate / "config").is_dir() and (candidate / "scripts").is_dir():
@@ -148,6 +158,66 @@ class InstallerOrchestrator:
     def _assert_repo_root(self) -> None:
         if not (self.repo_root / "config").is_dir():
             raise RuntimeError(f"Expected repo root with config/: {self.repo_root}")
+
+    async def _ensure_repo_root_for_install(
+        self,
+        *,
+        log: LogFn,
+        set_step: Callable[[str, int | None], None],
+        dry_run: bool,
+    ) -> None:
+        if (self.repo_root / "config").is_dir() and (
+            self.repo_root / "scripts"
+        ).is_dir():
+            return
+
+        home_repo = Path.home() / DOTFILES_REPO_DIRNAME
+        if (home_repo / "config").is_dir() and (home_repo / "scripts").is_dir():
+            self.repo_root = home_repo
+            log(f"[NOTE] Using dotfiles repo at {self.repo_root}")
+            return
+
+        if dry_run:
+            raise RuntimeError(
+                "Hyprland-Dots sources are not available for dry-run. "
+                "Use 'Download Repo' first or clone Hyprland-Dots to ~/Hyprland-Dots."
+            )
+
+        if not which("git"):
+            raise RuntimeError(
+                "Hyprland-Dots sources are missing and git is unavailable. "
+                "Use 'Download Repo' first or clone Hyprland-Dots to ~/Hyprland-Dots."
+            )
+
+        if home_repo.exists() and not home_repo.is_dir():
+            raise RuntimeError(
+                f"Cannot bootstrap Hyprland-Dots: non-directory path exists at {home_repo}"
+            )
+
+        set_step("Bootstrapping Hyprland-Dots source...", 8)
+        log(
+            "[INFO] Hyprland-Dots source not found. Attempting to clone into "
+            f"{home_repo}"
+        )
+
+        if not home_repo.exists():
+            clone = await run_cmd(
+                ["git", "clone", "--depth", "1", DOTFILES_REPO_URL, str(home_repo)],
+                log=log,
+            )
+            if clone.returncode != 0:
+                raise RuntimeError(
+                    "Failed to fetch Hyprland-Dots source automatically. "
+                    "Use 'Download Repo' from the menu and retry install."
+                )
+
+        if not (home_repo / "config").is_dir() or not (home_repo / "scripts").is_dir():
+            raise RuntimeError(
+                f"Hyprland-Dots source is incomplete at {home_repo}; expected config/ and scripts/."
+            )
+
+        self.repo_root = home_repo
+        log(f"[OK] Hyprland-Dots source ready at {self.repo_root}")
 
     def _copy_logs_dir(self) -> Path:
         d = self.repo_root / "Copy-Logs"
@@ -441,6 +511,7 @@ class InstallerOrchestrator:
         prompt_replace: PromptReplaceFn | None = None,
         prompt_confirm: PromptConfirmFn | None = None,
         prompt_password: PromptPasswordFn | None = None,
+        prompt_input: PromptInputFn | None = None,
     ) -> None:
         plan: PlanCollector | None = None
         if config.dry_run:
@@ -451,7 +522,11 @@ class InstallerOrchestrator:
                 "This script should NOT be executed as root!! Exiting......."
             )
 
-        self._assert_repo_root()
+        await self._ensure_repo_root_for_install(
+            log=log,
+            set_step=set_step,
+            dry_run=config.dry_run,
+        )
 
         set_step("Preparing...", 5)
 
@@ -549,6 +624,14 @@ class InstallerOrchestrator:
                         detail="apply hyprcursor tweaks",
                         dst=staging_config,
                     )
+
+            await self._handle_waybar_weather_binary(
+                log=log,
+                is_nixos=is_nixos,
+                distro_id=distro_id,
+                prompt_password=prompt_password,
+                plan=plan,
+            )
 
             self.last_state = InstallerState(
                 run_mode=config.run_mode,
@@ -703,6 +786,23 @@ class InstallerOrchestrator:
                 if name == "hypr" and backup is not None:
                     hypr_backup = backup
 
+            weather_config_copied = self._handle_waybar_weather_config(
+                run_mode=config.run_mode,
+                staging_config_root=staging_config,
+                target_config_root=target_config_root,
+                log=log,
+                plan=plan,
+            )
+
+            self._handle_waybar_weather_units(
+                run_mode=config.run_mode,
+                weather_config_copied=weather_config_copied,
+                target_config_root=target_config_root,
+                log=log,
+                prompt_input=prompt_input,
+                plan=plan,
+            )
+
             set_step("Installing terminal configs...", 78)
             ghostty_src = staging_config / "ghostty" / "ghostty.config"
             if plan is None:
@@ -841,6 +941,247 @@ class InstallerOrchestrator:
                 return
 
         set_step("Complete.", 100)
+
+    async def _handle_waybar_weather_binary(
+        self,
+        *,
+        log: LogFn,
+        is_nixos: bool,
+        distro_id: str | None,
+        prompt_password: PromptPasswordFn | None,
+        plan: PlanCollector | None,
+    ) -> None:
+        if plan is not None:
+            if is_nixos:
+                plan.add(
+                    kind="weather",
+                    detail="check waybar-weather binary (nixos warn-only)",
+                )
+            else:
+                plan.add(
+                    kind="weather",
+                    detail="attempt waybar-weather binary install (best-effort)",
+                )
+            return
+
+        if which("waybar-weather"):
+            log("[OK] waybar-weather binary detected.")
+            return
+
+        if is_nixos:
+            log("[WARN] waybar-weather binary is missing.")
+            log(
+                "[NOTE] Install the current NixOS-Hyprland version to install "
+                "waybar-weather applet for Waybar"
+            )
+            return
+
+        log("[INFO] waybar-weather binary not found; attempting best-effort install")
+        try:
+            installed = await self._attempt_waybar_weather_install(
+                distro_id=distro_id,
+                log=log,
+                prompt_password=prompt_password,
+            )
+        except Exception as exc:
+            log(f"[WARN] waybar-weather install failed ({exc}); continuing")
+            return
+
+        if installed:
+            log("[OK] waybar-weather install step completed")
+        else:
+            log("[WARN] waybar-weather install was not completed; continuing")
+
+    async def _attempt_waybar_weather_install(
+        self,
+        *,
+        distro_id: str | None,
+        log: LogFn,
+        prompt_password: PromptPasswordFn | None,
+    ) -> bool:
+        if distro_id == "arch" and which("yay"):
+            res = await run_cmd(["yay", "-S", "--noconfirm", "waybar-weather"], log=log)
+            if res.returncode == 0:
+                return True
+            log("[WARN] AUR install failed; falling back to bundled asset")
+
+        asset_path = self.repo_root / "assets" / "waybar-weather.gz"
+        if not asset_path.is_file():
+            return False
+
+        with tempfile.NamedTemporaryFile(prefix="waybar-weather-", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+
+        try:
+            with gzip.open(asset_path, "rb") as src, tmp_path.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+            tmp_path.chmod(0o755)
+
+            ok = await self._run_sudo_cmd(
+                ["install", "-m", "0755", str(tmp_path), "/usr/bin/waybar-weather"],
+                log=log,
+                prompt_password=prompt_password,
+                description="install waybar-weather binary",
+            )
+            return ok
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def _handle_waybar_weather_config(
+        self,
+        *,
+        run_mode: str,
+        staging_config_root: Path,
+        target_config_root: Path,
+        log: LogFn,
+        plan: PlanCollector | None,
+    ) -> bool:
+        src = staging_config_root / WAYBAR_WEATHER_DIRNAME
+        dst = target_config_root / WAYBAR_WEATHER_DIRNAME
+
+        if run_mode == "install":
+            if not src.is_dir():
+                log(f"[WARN] - waybar-weather config not found at {src}")
+                if plan is not None:
+                    plan.add(
+                        kind="weather",
+                        detail="weather config fresh copy skipped (source missing)",
+                        src=src,
+                        dst=dst,
+                    )
+                return False
+
+            log("[INFO] - Copying waybar-weather config (fresh copy)")
+            if plan is not None:
+                plan.add(
+                    kind="copytree",
+                    detail="install waybar-weather config (fresh copy)",
+                    src=src,
+                    dst=dst,
+                )
+                return True
+
+            self._copy_waybar_weather_dir(src=src, dst=dst, replace=True)
+            return True
+
+        if run_mode in {"upgrade", "express"}:
+            if dst.exists():
+                log("[INFO] - waybar-weather config exists; skipping copy")
+                if plan is not None:
+                    plan.add(
+                        kind="weather",
+                        detail="weather config copy skipped (destination exists)",
+                        src=src,
+                        dst=dst,
+                    )
+                return False
+
+            if not src.is_dir():
+                log(f"[WARN] - waybar-weather config not found at {src}")
+                if plan is not None:
+                    plan.add(
+                        kind="weather",
+                        detail="weather config copy skipped (source missing)",
+                        src=src,
+                        dst=dst,
+                    )
+                return False
+
+            log("[INFO] - Copying waybar-weather config")
+            if plan is not None:
+                plan.add(
+                    kind="copytree",
+                    detail="install waybar-weather config",
+                    src=src,
+                    dst=dst,
+                )
+                return True
+
+            self._copy_waybar_weather_dir(src=src, dst=dst, replace=False)
+            return True
+
+        return False
+
+    def _copy_waybar_weather_dir(self, *, src: Path, dst: Path, replace: bool) -> None:
+        assert_safe_path(dst)
+        if replace and (dst.exists() or dst.is_symlink()):
+            if dst.is_symlink() or dst.is_file():
+                dst.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(dst)
+
+        if not dst.exists():
+            dst.mkdir(parents=True, exist_ok=True)
+
+        shutil.copytree(src, dst, dirs_exist_ok=True, symlinks=True)
+
+    def _handle_waybar_weather_units(
+        self,
+        *,
+        run_mode: str,
+        weather_config_copied: bool,
+        target_config_root: Path,
+        log: LogFn,
+        prompt_input: PromptInputFn | None,
+        plan: PlanCollector | None,
+    ) -> None:
+        eligible = run_mode != "express" and weather_config_copied
+        if plan is not None:
+            detail = (
+                "weather units prompt applicable"
+                if eligible
+                else "weather units prompt not applicable"
+            )
+            plan.add(kind="weather", detail=detail)
+            return
+
+        if not eligible:
+            return
+
+        if prompt_input is None:
+            log("[NOTE] Weather units prompt unavailable; keeping default metric units")
+            return
+
+        weather_cfg = target_config_root / WAYBAR_WEATHER_DIRNAME / "config.toml"
+        while True:
+            units = prompt_input("Use Fahrenheit (F) or Celsius (C)? [C]:")
+            choice = "" if units is None else units.strip().lower()
+            if choice in {"", "c", "celsius"}:
+                return
+
+            if choice in {"f", "fahrenheit"}:
+                self._apply_waybar_weather_imperial(weather_cfg, log)
+                return
+
+            log("[WARN] Please enter 'F' or 'C'.")
+
+    def _apply_waybar_weather_imperial(self, weather_cfg: Path, log: LogFn) -> None:
+        if not weather_cfg.is_file():
+            log(f"[WARN] - waybar-weather config not found at {weather_cfg}")
+            return
+
+        lines = weather_cfg.read_text(encoding="utf-8", errors="replace").splitlines(
+            True
+        )
+        out: list[str] = []
+        replaced = False
+        units_pat = re.compile(r"^\s*(?:#\s*)?units\s*=")
+
+        for line in lines:
+            if units_pat.match(line):
+                if not replaced:
+                    out.append('units = "imperial"\n')
+                    replaced = True
+                continue
+            out.append(line)
+
+        if not replaced:
+            if out and not out[-1].endswith("\n"):
+                out[-1] = out[-1] + "\n"
+            out.append('units = "imperial"\n')
+
+        weather_cfg.write_text("".join(out), encoding="utf-8")
+        log("[OK] - Set waybar-weather units to imperial")
 
     def _apply_nvidia_tweaks(self, staging_config: Path) -> None:
         env_file = staging_config / HYPR_ENV_VARS

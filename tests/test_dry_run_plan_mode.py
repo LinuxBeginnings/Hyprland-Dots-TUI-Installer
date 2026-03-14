@@ -57,9 +57,14 @@ def test_dry_run_mode_makes_no_changes_but_emits_plan(
     monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
 
     logs: list[str] = []
+    prompt_calls = {"count": 0}
 
     def log(line: str) -> None:
         logs.append(line)
+
+    def prompt_input(_label: str) -> str | None:
+        prompt_calls["count"] += 1
+        return "F"
 
     cfg = InstallConfig(
         run_mode="install",
@@ -85,6 +90,7 @@ def test_dry_run_mode_makes_no_changes_but_emits_plan(
             set_step=lambda _m, _p: None,
             prompt_replace=prompt_replace_yes,
             prompt_confirm=prompt_confirm_yes,
+            prompt_input=prompt_input,
         )
     )
 
@@ -95,3 +101,82 @@ def test_dry_run_mode_makes_no_changes_but_emits_plan(
 
     # Assert: plan lines exist
     assert any(line.startswith("[PLAN]") for line in logs)
+    assert any(
+        "[PLAN] weather: attempt waybar-weather binary install (best-effort)" in line
+        for line in logs
+    )
+    assert any(
+        "[PLAN] weather: weather config fresh copy skipped (source missing)" in line
+        for line in logs
+    )
+    assert prompt_calls["count"] == 0
+
+
+def test_dry_run_express_mode_marks_weather_units_prompt_not_applicable(
+    fake_home,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = fake_home.home / "repo"
+    (repo_root / "config" / "waybar-weather").mkdir(parents=True)
+    (repo_root / "scripts").mkdir(parents=True)
+    write_text(
+        repo_root / "config" / "waybar-weather" / "config.toml", 'units = "metric"\n'
+    )
+
+    recorder = CmdRecorder()
+    monkeypatch.setattr("dots_tui.utils.run_cmd", recorder.run)
+    monkeypatch.setattr("dots_tui.utils.is_root", lambda: False)
+    monkeypatch.setattr("dots_tui.utils.which", lambda _cmd: None)
+    monkeypatch.setattr("dots_tui.logic.system.detect_distro", lambda: ("arch", []))
+    monkeypatch.setattr("dots_tui.logic.system.detect_chassis", lambda: "desktop")
+    monkeypatch.setattr("dots_tui.logic.system.detect_nvidia", lambda: False)
+    monkeypatch.setattr("dots_tui.logic.system.detect_vm", lambda: False)
+    monkeypatch.setattr("dots_tui.logic.system.detect_nixos", lambda: False)
+    monkeypatch.setattr(
+        "dots_tui.logic.system.get_installed_dotfiles_version",
+        lambda _root: "999.0.0",
+    )
+
+    orch = InstallerOrchestrator()
+    orch.repo_root = repo_root
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+
+    logs: list[str] = []
+
+    def prompt_input(_label: str) -> str | None:
+        raise AssertionError("dry-run must not request weather units input")
+
+    cfg = InstallConfig(
+        run_mode="express",
+        resolution="gte_1440p",
+        keyboard_layout="us",
+        clock_24h=True,
+        default_editor=None,
+        download_wallpapers=False,
+        apply_sddm_wallpaper=False,
+        dry_run=True,
+        enable_asus=False,
+        enable_blueman=False,
+        enable_ags=False,
+        enable_quickshell=False,
+    )
+
+    asyncio.run(
+        orch.run_install(
+            cfg,
+            log=logs.append,
+            log_file=fake_home.copy_logs / "dry-run-express.log",
+            set_step=lambda _m, _p: None,
+            prompt_input=prompt_input,
+        )
+    )
+
+    assert any(
+        "[PLAN] weather: attempt waybar-weather binary install (best-effort)" in line
+        for line in logs
+    )
+    assert any(
+        "[PLAN] weather: weather config copy skipped (source missing)" in line
+        for line in logs
+    )
+    assert any("weather units prompt not applicable" in line for line in logs)

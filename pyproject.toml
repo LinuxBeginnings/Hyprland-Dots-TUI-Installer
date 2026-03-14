@@ -27,6 +27,13 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/dots_tui"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "Hyprland-Dots/config/rofi/.current_wallpaper",
+  "Hyprland-Dots/config/waybar/config",
+  "Hyprland-Dots/config/waybar/style.css",
+]
+
 [build-system]
 requires = ["hatchling>=1.22.0"]
 build-backend = "hatchling.build"

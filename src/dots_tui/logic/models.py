@@ -78,6 +78,19 @@ class PromptPasswordFn(Protocol):
     def __call__(self, label: str, /) -> str | None: ...
 
 
+class PromptInputFn(Protocol):
+    """Protocol for prompting user for a short text input.
+
+    Args:
+        label: The prompt text to display
+
+    Returns:
+        The entered value or None if cancelled
+    """
+
+    def __call__(self, label: str, /) -> str | None: ...
+
+
 @dataclass(frozen=True)
 class InstallConfig:
     # User selections only. Runtime-derived fields live in InstallerState.
