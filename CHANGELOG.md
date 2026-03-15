@@ -1,5 +1,20 @@
 ## Hyprland Dotfiles TUI Installer
 
+## 0.2.1 - 3/14/2026
+
+### Bug Fixes
+- Fixed PyInstaller SSL/libssl.so.3 version mismatch during git clone operations by removing LD_LIBRARY_PATH from subprocess environment
+- Fixed unnecessary SDDM clock configuration edits in express mode
+- Improved Waybar symlink handling with canonical target enforcement and safety warnings
+- Ensured Hyprland KeybindsLayoutInit startup entry is always configured
+
+### Features
+- Added waybar-weather feature parity with upstream
+- Implemented runtime Hyprland-Dots repository bootstrap during installation
+
+### Documentation
+- Updated run command documentation for clarity
+
 ## 0.2.0 - 3/13/2026
 
 - Added standalone operation by searching `~/Hyprland-Dots` when running outside the repository.
