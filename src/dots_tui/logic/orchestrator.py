@@ -1846,7 +1846,7 @@ class InstallerOrchestrator:
                 log("[NOTE] SDDM wallpaper disabled; skipping.")
 
         # SDDM clock format edits
-        if not cfg.clock_24h:
+        if not cfg.clock_24h and cfg.run_mode != "express":
             for theme_name in ["simple_sddm_2", "simple-sddm"]:
                 theme_conf = Path(f"/usr/share/sddm/themes/{theme_name}/theme.conf")
                 if not theme_conf.is_file():
@@ -1912,6 +1912,8 @@ class InstallerOrchestrator:
                         description="add 12h clock format in sequoia_2",
                         prompt_password=prompt_password,
                     )
+        elif not cfg.clock_24h:
+            log("[NOTE] Express mode: skipping SDDM 12h clock edits.")
 
         # Backup cleanup (express auto, otherwise prompt).
         cleanup_backups(
