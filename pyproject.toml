@@ -6,7 +6,7 @@
 # ============================================================================
 [project]
 name = "dots-tui"
-version = "0.2.0"
+version = "0.2.1"
 description = "Textual TUI installer for Hyprland-Dots"
 requires-python = ">=3.11"
 dependencies = ["rich-argparse>=1.7.2", "textual>=0.50.0"]
@@ -26,6 +26,13 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dots_tui"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "Hyprland-Dots/config/rofi/.current_wallpaper",
+  "Hyprland-Dots/config/waybar/config",
+  "Hyprland-Dots/config/waybar/style.css",
+]
 
 [build-system]
 requires = ["hatchling>=1.22.0"]

@@ -240,6 +240,36 @@ class ProgressScreen(Screen[None]):
         ev.wait()
         return result["value"]
 
+    def _prompt_input(self, label: str) -> str | None:
+        """Ask for plain text input via InputModal.
+        Blocks the worker thread until answer is received.
+        """
+        from dots_tui.screens.input import InputModal
+
+        ev = threading.Event()
+        result: dict[str, str | None] = {"value": None}
+
+        def on_answer(value: str | None) -> None:
+            result["value"] = value
+            ev.set()
+
+        def push() -> None:
+            self.app.push_screen(
+                InputModal(
+                    title="Weather Units",
+                    prompt=label,
+                    placeholder="C or F",
+                ),
+                callback=on_answer,
+            )
+
+        if self._is_main_thread():
+            push()
+        else:
+            self.app.call_from_thread(push)
+        ev.wait()
+        return result["value"]
+
     def _prompt_replace(self, name: str, path: Path) -> bool:
         msg = (
             f"Found existing {name} config at:\n"
@@ -289,6 +319,7 @@ class ProgressScreen(Screen[None]):
                     prompt_replace=self._prompt_replace,
                     prompt_confirm=self._prompt_confirm,
                     prompt_password=self._prompt_password,
+                    prompt_input=self._prompt_input,
                 )
                 self._set_step("Done.", percent=100)
         except Exception as e:

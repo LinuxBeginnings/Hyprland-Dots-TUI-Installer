@@ -67,3 +67,21 @@ def test_detect_repo_root_falls_back_to_home_hyprland_dots_lowercase(
     orch = InstallerOrchestrator()
 
     assert orch.repo_root == home_repo
+
+
+def test_detect_repo_root_finds_child_hyprland_dots_dir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    cwd = tmp_path / "standalone-tui"
+    cwd.mkdir(parents=True)
+    child_repo = cwd / "Hyprland-Dots"
+    (child_repo / "config").mkdir(parents=True)
+    (child_repo / "scripts").mkdir(parents=True)
+
+    _patch_cwd_and_home(monkeypatch, cwd=cwd, home=home)
+
+    orch = InstallerOrchestrator()
+
+    assert orch.repo_root == child_repo
