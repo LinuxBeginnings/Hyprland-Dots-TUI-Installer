@@ -201,9 +201,12 @@ class InstallerOrchestrator:
         )
 
         if not home_repo.exists():
+            clean_env = os.environ.copy()
+            clean_env.pop("LD_LIBRARY_PATH", None)
             clone = await run_cmd(
                 ["git", "clone", "--depth", "1", DOTFILES_REPO_URL, str(home_repo)],
                 log=log,
+                env=clean_env,
             )
             if clone.returncode != 0:
                 raise RuntimeError(
@@ -430,9 +433,12 @@ class InstallerOrchestrator:
             )
 
         set_step("Cloning Hyprland-Dots...", 55)
+        clean_env = os.environ.copy()
+        clean_env.pop("LD_LIBRARY_PATH", None)
         clone_res = await run_cmd(
             ["git", "clone", "--depth", "1", DOTFILES_REPO_URL, str(target)],
             log=log,
+            env=clean_env,
         )
         if clone_res.returncode != 0:
             raise RuntimeError(f"git clone failed (exit {clone_res.returncode})")
