@@ -111,6 +111,32 @@ def which(cmd: str) -> str | None:
     return shutil.which(cmd)
 
 
+def get_system_ca_bundle() -> str | None:
+    """Detect system CA certificate bundle path.
+
+    Checks common CA bundle locations across Linux distros:
+    - /etc/ssl/certs/ca-certificates.crt (Debian/Ubuntu)
+    - /etc/ssl/certs/ca-bundle.crt (RHEL/Fedora)
+    - /etc/pki/tls/certs/ca-bundle.crt (Amazon Linux)
+    - /usr/local/share/ca-certificates (custom)
+
+    Returns the first existing path, or None if no bundle found.
+    Used to fix SSL certificate validation in compiled binaries.
+    """
+    ca_paths = [
+        Path("/etc/ssl/certs/ca-certificates.crt"),
+        Path("/etc/ssl/certs/ca-bundle.crt"),
+        Path("/etc/pki/tls/certs/ca-bundle.crt"),
+        Path("/usr/local/share/ca-certificates"),
+    ]
+
+    for ca_path in ca_paths:
+        if ca_path.exists():
+            return str(ca_path)
+
+    return None
+
+
 def fmt_cmd(argv: Iterable[str]) -> str:
     return " ".join(shlex.quote(a) for a in argv)
 
@@ -139,6 +165,15 @@ async def run_cmd(
     merged_env.setdefault("CLICOLOR_FORCE", "0")
     merged_env.setdefault("PY_COLORS", "0")
     merged_env.setdefault("FORCE_COLOR", "0")
+
+    # Set GIT_SSL_CAINFO for git operations in compiled binaries
+    # to ensure SSL certificate validation works across Linux distros.
+    # Only set if a CA bundle actually exists to avoid breaking git.
+    merged_env.pop("LD_LIBRARY_PATH", None)  # Remove problematic var
+    if not merged_env.get("GIT_SSL_CAINFO"):  # Don't override if already set
+        ca_bundle = get_system_ca_bundle()
+        if ca_bundle:
+            merged_env["GIT_SSL_CAINFO"] = ca_bundle
 
     process = await asyncio.create_subprocess_exec(
         *argv,
