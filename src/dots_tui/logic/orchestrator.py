@@ -1262,6 +1262,58 @@ class InstallerOrchestrator:
         txt = txt.replace("#env = HYPRCURSOR_SIZE,24", "env = HYPRCURSOR_SIZE,24")
         env_file.write_text(txt, encoding="utf-8")
 
+    def _enforce_symlink_target(
+        self,
+        *,
+        link_path: Path,
+        canonical_target: Path,
+        label: str,
+        log: LogFn,
+    ) -> None:
+        """Ensure link_path points to canonical_target with warn-only fallbacks.
+
+        If canonical_target is missing, this method leaves link_path untouched and
+        emits a warning. Recoverable filesystem errors are logged and do not raise.
+        """
+
+        if not canonical_target.exists():
+            log(
+                "[WARN] Skipping Waybar "
+                f"{label} symlink enforcement for {link_path}: "
+                f"canonical target missing at {canonical_target}"
+            )
+            return
+
+        canonical_resolved = canonical_target.resolve()
+        if link_path.is_symlink():
+            try:
+                if link_path.resolve(strict=True) == canonical_resolved:
+                    return
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                log(
+                    "[WARN] Failed to inspect Waybar "
+                    f"{label} symlink at {link_path}: {exc}"
+                )
+
+        try:
+            if link_path.is_symlink() or link_path.is_file():
+                link_path.unlink(missing_ok=True)
+            elif link_path.exists():
+                log(
+                    "[WARN] Skipping Waybar "
+                    f"{label} symlink enforcement for {link_path}: "
+                    "destination is not a file or symlink"
+                )
+                return
+
+            link_path.symlink_to(canonical_target)
+        except OSError as exc:
+            log(
+                f"[WARN] Failed to enforce Waybar {label} symlink at {link_path}: {exc}"
+            )
+
     def _apply_user_choices(
         self, cfg: InstallConfig, staging_config: Path, log: LogFn
     ) -> None:
@@ -1719,25 +1771,18 @@ class InstallerOrchestrator:
                 / ("TOP-Default" if chassis == "desktop" else "TOP-Default-Laptop")
             )
             style_target = waybar_dir / "style" / "Extra-Prismatic-Glow.css"
-            if config_target.exists():
-                cfg_link = waybar_dir / "config"
-                if not cfg_link.exists() or cfg_link.is_symlink():
-                    try:
-                        if cfg_link.exists() or cfg_link.is_symlink():
-                            cfg_link.unlink(missing_ok=True)
-                        cfg_link.symlink_to(config_target)
-                    except Exception:
-                        pass
-
-            if style_target.exists():
-                css_link = waybar_dir / "style.css"
-                if not css_link.exists() or css_link.is_symlink():
-                    try:
-                        if css_link.exists() or css_link.is_symlink():
-                            css_link.unlink(missing_ok=True)
-                        css_link.symlink_to(style_target)
-                    except Exception:
-                        pass
+            self._enforce_symlink_target(
+                link_path=waybar_dir / "config",
+                canonical_target=config_target,
+                label="config",
+                log=log,
+            )
+            self._enforce_symlink_target(
+                link_path=waybar_dir / "style.css",
+                canonical_target=style_target,
+                label="style.css",
+                log=log,
+            )
 
             # Remove inappropriate waybar configs (shell behavior).
             config_remove = " Laptop" if chassis == "desktop" else ""
