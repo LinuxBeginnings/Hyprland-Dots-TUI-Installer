@@ -8,6 +8,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+_home_override: Path | None = None
+
+
+def set_home_override(home: Path | None) -> None:
+    """Set module-level home override for sandbox validation."""
+    global _home_override
+    _home_override = home
+
 
 def _normalize(p: Path) -> Path:
     # Avoid strict resolve() since targets may not exist yet.
@@ -33,7 +41,7 @@ def assert_safe_path(path: Path, *, home: Path | None = None) -> None:
     if str(p) == "/":
         raise RuntimeError("Refusing to operate on '/'")
 
-    h = _normalize(home or Path.home())
+    h = _normalize(home or _home_override or Path.home())
     try:
         p.relative_to(h)
     except Exception as e:

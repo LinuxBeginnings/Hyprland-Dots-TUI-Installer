@@ -72,7 +72,7 @@ def test_quickshell_skip_overwrite_removes_shell_qml_and_installs_overview(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     cfg = InstallConfig(
         run_mode="install",
@@ -162,7 +162,7 @@ def test_quickshell_overwrite_rewrites_startup_and_removes_new_shell_qml(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     cfg = InstallConfig(
         run_mode="install",

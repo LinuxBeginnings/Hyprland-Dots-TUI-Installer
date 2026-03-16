@@ -21,12 +21,13 @@ def _seed_repo(repo_root) -> None:
     )
 
 
-def _base_config(run_mode: RunMode) -> InstallConfig:
+def _base_config(run_mode: RunMode, weather_units: str = "C") -> InstallConfig:
     return InstallConfig(
         run_mode=run_mode,
         resolution="gte_1440p",
         keyboard_layout="us",
         clock_24h=True,
+        weather_units=weather_units,  # type: ignore[arg-type]
         default_editor=None,
         download_wallpapers=False,
         apply_sddm_wallpaper=False,
@@ -76,7 +77,7 @@ def test_install_mode_refreshes_weather_config(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -112,7 +113,7 @@ def test_upgrade_mode_preserves_existing_weather_config(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -144,7 +145,7 @@ def test_express_mode_copies_missing_weather_config_without_prompt(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -182,7 +183,7 @@ def test_non_express_existing_weather_config_does_not_prompt_units(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -229,7 +230,7 @@ def test_nixos_missing_binary_warns_and_does_not_attempt_install(
             is_nixos=True,
             distro_id="nixos",
             prompt_password=None,
-            plan=None,
+            dry_run=False,
         )
     )
 
@@ -249,7 +250,7 @@ def test_non_nixos_install_failure_is_non_fatal_and_continues(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     async def fail_attempt(**_kwargs) -> bool:
         raise RuntimeError("boom")
@@ -271,15 +272,16 @@ def test_non_nixos_install_failure_is_non_fatal_and_continues(
 
 
 @pytest.mark.parametrize(
-    ("prompt_value", "expect_imperial"),
-    [("F", True), ("C", False), ("", False)],
+    ("weather_units", "expect_imperial"),
+    [("F", True), ("C", False)],
 )
-def test_units_prompt_gating_and_outcomes(
+def test_units_from_config_gating_and_outcomes(
     fake_home,
     monkeypatch: pytest.MonkeyPatch,
-    prompt_value: str,
+    weather_units: str,
     expect_imperial: bool,
 ) -> None:
+    """Weather units are read from InstallConfig instead of prompting."""
     repo_root = fake_home.home / "repo"
     _seed_repo(repo_root)
 
@@ -288,34 +290,33 @@ def test_units_prompt_gating_and_outcomes(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
         lambda **_kwargs: asyncio.sleep(0),
     )
 
-    prompt_calls = {"count": 0}
-
-    def prompt_units(_label: str) -> str | None:
-        prompt_calls["count"] += 1
-        return prompt_value
+    # No prompt function should be called
+    def fail_prompt(_label: str) -> str | None:
+        raise AssertionError("weather units must be read from config, not prompted")
 
     asyncio.run(
         orch.run_install(
-            _base_config("install"),
+            _base_config("install", weather_units=weather_units),
             log=lambda _l: None,
-            log_file=fake_home.copy_logs / "weather-units.log",
+            log_file=fake_home.copy_logs / "weather-config.log",
             set_step=lambda _m, _p: None,
-            prompt_input=prompt_units,
+            prompt_input=fail_prompt,
         )
     )
 
     cfg = read_text(fake_home.config / "waybar-weather" / "config.toml")
-    assert prompt_calls["count"] == 1
     if expect_imperial:
         active_units = re.findall(r'^\s*units\s*=\s*"([^"]+)"', cfg, flags=re.MULTILINE)
-        assert active_units == ["imperial"]
+        assert active_units == ["imperial"], (
+            f"Expected ['imperial'], got {active_units}"
+        )
         parsed = tomllib.loads(cfg)
         assert parsed["units"] == "imperial"
     else:
@@ -337,7 +338,7 @@ def test_fahrenheit_adds_units_when_key_is_absent(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -346,14 +347,13 @@ def test_fahrenheit_adds_units_when_key_is_absent(
 
     asyncio.run(
         orch.run_install(
-            _base_config("install"),
+            _base_config("install", weather_units="F"),
             log=lambda _l: None,
             log_file=fake_home.copy_logs / "weather-units-absent.log",
             set_step=lambda _m, _p: None,
-            prompt_input=lambda _label: "F",
         )
     )
 
     cfg = read_text(fake_home.config / "waybar-weather" / "config.toml")
     active_units = re.findall(r'^\s*units\s*=\s*"([^"]+)"', cfg, flags=re.MULTILINE)
-    assert active_units == ["imperial"]
+    assert active_units == ["imperial"], f"Expected ['imperial'], got {active_units}"

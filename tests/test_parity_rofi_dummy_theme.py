@@ -55,7 +55,7 @@ def test_rofi_dummy_theme_created_and_removed_when_themes_empty(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     cfg = InstallConfig(
         run_mode="install",

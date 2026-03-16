@@ -54,8 +54,7 @@ from dots_tui.logic.system import (
 )
 import dots_tui.utils as utils
 
-from dots_tui.logic.plan import PlanCollector
-from dots_tui.logic.path_safety import assert_safe_path
+from dots_tui.logic.path_safety import assert_safe_path, set_home_override
 
 
 def is_root() -> bool:
@@ -222,27 +221,40 @@ class InstallerOrchestrator:
         self.repo_root = home_repo
         log(f"[OK] Hyprland-Dots source ready at {self.repo_root}")
 
-    def _copy_logs_dir(self) -> Path:
-        d = self.repo_root / "Copy-Logs"
+    def _copy_logs_dir(self, *, sandbox_root: Path | None = None) -> Path:
+        if sandbox_root is not None:
+            d = sandbox_root / "Copy-Logs"
+        else:
+            d = self.repo_root / "Copy-Logs"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _log_file_path(self, prefix: str) -> Path:
+    def _log_file_path(self, prefix: str, *, sandbox_root: Path | None = None) -> Path:
         ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         if prefix == "update":
-            return self._copy_logs_dir() / f"update-{ts}_git.log"
+            return (
+                self._copy_logs_dir(sandbox_root=sandbox_root) / f"update-{ts}_git.log"
+            )
         if prefix == "download":
-            return self._copy_logs_dir() / f"download-{ts}_git.log"
-        return self._copy_logs_dir() / f"install-{ts}_dotfiles.log"
+            return (
+                self._copy_logs_dir(sandbox_root=sandbox_root)
+                / f"download-{ts}_git.log"
+            )
+        return (
+            self._copy_logs_dir(sandbox_root=sandbox_root)
+            / f"install-{ts}_dotfiles.log"
+        )
 
-    def create_log_sink(self, *, prefix: str, ui_log: LogFn) -> tuple[LogFn, Path]:
+    def create_log_sink(
+        self, *, prefix: str, ui_log: LogFn, sandbox_root: Path | None = None
+    ) -> tuple[LogFn, Path]:
         """Return a log function that writes to UI + file.
 
         This is the core "tee -a" parity hook: any line written to the UI log
         should also be appended to the file log.
         """
 
-        log_file = self._log_file_path(prefix)
+        log_file = self._log_file_path(prefix, sandbox_root=sandbox_root)
         log_file.parent.mkdir(parents=True, exist_ok=True)
         log_file.touch(exist_ok=True)
 
@@ -519,10 +531,6 @@ class InstallerOrchestrator:
         prompt_password: PromptPasswordFn | None = None,
         prompt_input: PromptInputFn | None = None,
     ) -> None:
-        plan: PlanCollector | None = None
-        if config.dry_run:
-            plan = PlanCollector()
-
         if is_root():
             raise RuntimeError(
                 "This script should NOT be executed as root!! Exiting......."
@@ -536,23 +544,10 @@ class InstallerOrchestrator:
 
         set_step("Preparing...", 5)
 
-        # Pre-authenticate sudo before any prompts (SDDM operations need it)
-        if plan is None:
-            await self._pre_authenticate_sudo(
-                log=log,
-                prompt_password=prompt_password,
-            )
-        if plan is None:
-            res = await run_cmd(["xdg-user-dirs-update"], log=log)
-            if res.returncode != 0:
-                log(
-                    f"[WARN] xdg-user-dirs-update failed (exit {res.returncode}); continuing"
-                )
-        else:
-            plan.add(kind="cmd", detail="xdg-user-dirs-update")
-
+        # Read installed version from REAL config BEFORE sandbox redirect.
+        real_home = Path.home()
         target_config_root = Path(
-            os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+            os.environ.get("XDG_CONFIG_HOME", str(real_home / ".config"))
         )
 
         distro_id, distro_like = detect_distro()
@@ -560,13 +555,41 @@ class InstallerOrchestrator:
         installed_version = get_installed_dotfiles_version(target_config_root)
         installed_version_at_start = installed_version
 
-        with tempfile.TemporaryDirectory(prefix="hyprdots-stage-") as td:
-            staging_root = Path(td)
-            staging_config = staging_root / "config"
-            staging_wallpapers = staging_root / "wallpapers"
+        # Sandbox lifecycle for dry-run.
+        sandbox: tempfile.TemporaryDirectory[str] | None = None
+        sandbox_home: Path | None = None
+        if config.dry_run:
+            sandbox = tempfile.TemporaryDirectory(prefix="hyprdots-sandbox-")
+            sandbox_home = Path(sandbox.name)
+            target_config_root = sandbox_home / ".config"
+            set_home_override(sandbox_home)
+            log(f"[DRY-RUN] Sandbox: {sandbox_home}")
 
-            set_step("Staging files...", 10)
-            if plan is None:
+        # Pre-authenticate sudo before any prompts (SDDM operations need it)
+        if not config.dry_run:
+            await self._pre_authenticate_sudo(
+                log=log,
+                prompt_password=prompt_password,
+            )
+        else:
+            log("[DRY-RUN] Skipped: sudo pre-auth")
+
+        if not config.dry_run:
+            res = await run_cmd(["xdg-user-dirs-update"], log=log)
+            if res.returncode != 0:
+                log(
+                    f"[WARN] xdg-user-dirs-update failed (exit {res.returncode}); continuing"
+                )
+        else:
+            log("[DRY-RUN] Skipped: xdg-user-dirs-update")
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="hyprdots-stage-") as td:
+                staging_root = Path(td)
+                staging_config = staging_root / "config"
+                staging_wallpapers = staging_root / "wallpapers"
+
+                set_step("Staging files...", 10)
                 shutil.copytree(
                     self.repo_root / "config", staging_config, symlinks=True
                 )
@@ -576,242 +599,171 @@ class InstallerOrchestrator:
                         staging_wallpapers,
                         symlinks=True,
                     )
-            else:
-                plan.add(
-                    kind="copytree",
-                    detail="stage repo config",
-                    src=self.repo_root / "config",
-                    dst=staging_config,
-                )
-                if (self.repo_root / "wallpapers").is_dir():
-                    plan.add(
-                        kind="copytree",
-                        detail="stage wallpapers",
-                        src=self.repo_root / "wallpapers",
-                        dst=staging_wallpapers,
-                    )
 
-            set_step("Applying system tweaks...", 20)
-            is_nvidia = detect_nvidia()
-            is_vm = detect_vm()
-            is_nixos = detect_nixos()
-            if is_nvidia:
-                log("[INFO] Nvidia GPU detected; applying config tweaks")
-                if plan is None:
+                set_step("Applying system tweaks...", 20)
+                is_nvidia = detect_nvidia()
+                is_vm = detect_vm()
+                is_nixos = detect_nixos()
+                if is_nvidia:
+                    log("[INFO] Nvidia GPU detected; applying config tweaks")
                     self._apply_nvidia_tweaks(staging_config)
-                else:
-                    plan.add(
-                        kind="edit", detail="apply nvidia tweaks", dst=staging_config
-                    )
-            if is_vm:
-                log("[INFO] VM detected; applying config tweaks")
-                if plan is None:
+                if is_vm:
+                    log("[INFO] VM detected; applying config tweaks")
                     self._apply_vm_tweaks(staging_config)
-                else:
-                    plan.add(kind="edit", detail="apply vm tweaks", dst=staging_config)
-            if is_nixos:
-                log("[INFO] NixOS detected; applying config tweaks")
-                if plan is None:
+                if is_nixos:
+                    log("[INFO] NixOS detected; applying config tweaks")
                     self._apply_nixos_tweaks(staging_config)
-                else:
-                    plan.add(
-                        kind="edit", detail="apply nixos tweaks", dst=staging_config
-                    )
 
-            if (Path.home() / ".icons/Bibata-Modern-Ice/hyprcursors").is_dir():
-                log(
-                    "[INFO] Bibata-Hyprcursor directory detected. Activating Hyprcursor...."
-                )
-                if plan is None:
-                    self._apply_hyprcursor_tweaks(staging_config)
-                else:
-                    plan.add(
-                        kind="edit",
-                        detail="apply hyprcursor tweaks",
-                        dst=staging_config,
-                    )
-
-            await self._handle_waybar_weather_binary(
-                log=log,
-                is_nixos=is_nixos,
-                distro_id=distro_id,
-                prompt_password=prompt_password,
-                plan=plan,
-            )
-
-            self.last_state = InstallerState(
-                run_mode=config.run_mode,
-                selections=config,
-                env=EnvironmentInfo(
-                    distro_id=distro_id,
-                    distro_like=distro_like,
-                    chassis=chassis,
-                    is_nvidia=is_nvidia,
-                    is_vm=is_vm,
-                    is_nixos=is_nixos,
-                    installed_dotfiles_version=installed_version,
-                ),
-                paths=InstallerPaths(
-                    repo_root=self.repo_root,
-                    copy_logs_dir=self._copy_logs_dir(),
-                    log_file=log_file,
-                    target_config_root=target_config_root,
-                    staging_root=staging_root,
-                ),
-            )
-
-            if config.run_mode == "express":
-                if installed_version is None or not version_gte(
-                    installed_version, MIN_EXPRESS_VERSION
-                ):
+                if (real_home / ".icons/Bibata-Modern-Ice/hyprcursors").is_dir():
                     log(
-                        f"[WARN] Express mode requires installed dotfiles v{MIN_EXPRESS_VERSION} or newer. Falling back to standard upgrade."
+                        "[INFO] Bibata-Hyprcursor directory detected. Activating Hyprcursor...."
                     )
-                    config = InstallConfig(
-                        run_mode="upgrade",
-                        resolution=config.resolution,
-                        keyboard_layout=config.keyboard_layout,
-                        clock_24h=config.clock_24h,
-                        default_editor=config.default_editor,
-                        download_wallpapers=config.download_wallpapers,
-                        enable_asus=config.enable_asus,
-                        enable_blueman=config.enable_blueman,
-                        enable_ags=config.enable_ags,
-                        enable_quickshell=config.enable_quickshell,
-                        dry_run=config.dry_run,
-                        default_wallpaper=config.default_wallpaper,
+                    self._apply_hyprcursor_tweaks(staging_config)
+
+                await self._handle_waybar_weather_binary(
+                    log=log,
+                    is_nixos=is_nixos,
+                    distro_id=distro_id,
+                    prompt_password=prompt_password,
+                    dry_run=config.dry_run,
+                )
+
+                self.last_state = InstallerState(
+                    run_mode=config.run_mode,
+                    selections=config,
+                    env=EnvironmentInfo(
+                        distro_id=distro_id,
+                        distro_like=distro_like,
+                        chassis=chassis,
+                        is_nvidia=is_nvidia,
+                        is_vm=is_vm,
+                        is_nixos=is_nixos,
+                        installed_dotfiles_version=installed_version,
+                    ),
+                    paths=InstallerPaths(
+                        repo_root=self.repo_root,
+                        copy_logs_dir=self._copy_logs_dir(sandbox_root=sandbox_home),
+                        log_file=log_file,
+                        target_config_root=target_config_root,
+                        staging_root=staging_root,
+                    ),
+                )
+
+                if config.run_mode == "express":
+                    if installed_version is None or not version_gte(
+                        installed_version, MIN_EXPRESS_VERSION
+                    ):
+                        log(
+                            f"[WARN] Express mode requires installed dotfiles v{MIN_EXPRESS_VERSION} or newer. Falling back to standard upgrade."
+                        )
+                        config = InstallConfig(
+                            run_mode="upgrade",
+                            resolution=config.resolution,
+                            keyboard_layout=config.keyboard_layout,
+                            clock_24h=config.clock_24h,
+                            default_editor=config.default_editor,
+                            download_wallpapers=config.download_wallpapers,
+                            enable_asus=config.enable_asus,
+                            enable_blueman=config.enable_blueman,
+                            enable_ags=config.enable_ags,
+                            enable_quickshell=config.enable_quickshell,
+                            dry_run=config.dry_run,
+                            default_wallpaper=config.default_wallpaper,
+                        )
+
+                        assert self.last_state is not None
+                        self.last_state = InstallerState(
+                            run_mode=config.run_mode,
+                            selections=config,
+                            env=self.last_state.env,
+                            paths=self.last_state.paths,
+                        )
+
+                # Initial run-mode logging parity.
+                log(f"Selected workflow: {config.run_mode}")
+                if config.run_mode in {"upgrade", "express"}:
+                    log("Upgrade mode enabled.")
+                if config.run_mode == "express":
+                    log(
+                        "Express mode enabled. Optional restore prompts will be skipped."
                     )
 
-                    assert self.last_state is not None
-                    self.last_state = InstallerState(
-                        run_mode=config.run_mode,
-                        selections=config,
-                        env=self.last_state.env,
-                        paths=self.last_state.paths,
-                    )
-
-            # Initial run-mode logging parity.
-            log(f"Selected workflow: {config.run_mode}")
-            if config.run_mode in {"upgrade", "express"}:
-                log("Upgrade mode enabled.")
-            if config.run_mode == "express":
-                log("Express mode enabled. Optional restore prompts will be skipped.")
-
-            set_step("Applying user configuration...", 30)
-            if plan is None:
+                set_step("Applying user configuration...", 30)
                 self._apply_user_choices(config, staging_config, log)
-            else:
-                plan.add(kind="edit", detail="apply user choices", dst=staging_config)
 
-            set_step("Copying configs (phase 1)...", 45)
-            for name in PHASE1_CONFIGS:
-                log(f"[INFO] Installing {name}")
+                set_step("Copying configs (phase 1)...", 45)
+                for name in PHASE1_CONFIGS:
+                    log(f"[INFO] Installing {name}")
 
-                dst = target_config_root / name
-                if dst.exists() and prompt_replace is not None:
-                    if not prompt_replace(name, dst):
-                        log(f"[NOTE] - Skipping {name}")
-                        continue
+                    dst = target_config_root / name
+                    if dst.exists() and prompt_replace is not None:
+                        if not prompt_replace(name, dst):
+                            log(f"[NOTE] - Skipping {name}")
+                            continue
 
-                backup = None
-                if plan is None:
+                    backup = None
                     backup = copy_phase1_dir(
                         name=name,
                         staging_config_root=staging_config,
                         target_config_root=target_config_root,
                         log=log,
                     )
-                else:
-                    plan.add(
-                        kind="copytree",
-                        detail=f"install {name} (phase 1)",
-                        src=staging_config / name,
-                        dst=target_config_root / name,
-                    )
-                if name == "rofi" and backup is not None:
-                    restore_rofi_from_backup(
-                        backup_dir=backup,
-                        rofi_dir=target_config_root / "rofi",
-                        log=log,
-                    )
+                    if name == "rofi" and backup is not None:
+                        restore_rofi_from_backup(
+                            backup_dir=backup,
+                            rofi_dir=target_config_root / "rofi",
+                            log=log,
+                        )
 
-            set_step("Copying configs (waybar)...", 55)
-            log("[INFO] Installing waybar")
+                set_step("Copying configs (waybar)...", 55)
+                log("[INFO] Installing waybar")
 
-            waybar_dst = target_config_root / "waybar"
-            if waybar_dst.exists() and prompt_replace is not None:
-                if not prompt_replace("waybar", waybar_dst):
-                    log("[NOTE] - Skipping waybar config replacement.")
-                else:
-                    if plan is None:
+                waybar_dst = target_config_root / "waybar"
+                if waybar_dst.exists() and prompt_replace is not None:
+                    if not prompt_replace("waybar", waybar_dst):
+                        log("[NOTE] - Skipping waybar config replacement.")
+                    else:
                         copy_waybar_with_merge(
                             staging_config_root=staging_config,
                             target_config_root=target_config_root,
                             log=log,
                         )
-                    else:
-                        plan.add(
-                            kind="copytree",
-                            detail="install waybar (replace+merge)",
-                            src=staging_config / "waybar",
-                            dst=target_config_root / "waybar",
-                        )
-            else:
-                if plan is None:
+                else:
                     copy_waybar_with_merge(
                         staging_config_root=staging_config,
                         target_config_root=target_config_root,
                         log=log,
                     )
-                else:
-                    plan.add(
-                        kind="copytree",
-                        detail="install waybar",
-                        src=staging_config / "waybar",
-                        dst=target_config_root / "waybar",
-                    )
 
-            set_step("Copying configs (phase 2)...", 70)
-            hypr_backup: Path | None = None
-            for name in PHASE2_CONFIGS:
-                log(f"[INFO] Installing {name}")
-                backup = None
-                if plan is None:
+                set_step("Copying configs (phase 2)...", 70)
+                hypr_backup: Path | None = None
+                for name in PHASE2_CONFIGS:
+                    log(f"[INFO] Installing {name}")
+                    backup = None
                     backup = copy_config_dir(
                         name=name,
                         staging_config_root=staging_config,
                         target_config_root=target_config_root,
                     )
-                else:
-                    plan.add(
-                        kind="copytree",
-                        detail=f"install {name} (phase 2)",
-                        src=staging_config / name,
-                        dst=target_config_root / name,
-                    )
-                if name == "hypr" and backup is not None:
-                    hypr_backup = backup
+                    if name == "hypr" and backup is not None:
+                        hypr_backup = backup
 
-            weather_config_copied = self._handle_waybar_weather_config(
-                run_mode=config.run_mode,
-                staging_config_root=staging_config,
-                target_config_root=target_config_root,
-                log=log,
-                plan=plan,
-            )
+                weather_config_copied = self._handle_waybar_weather_config(
+                    run_mode=config.run_mode,
+                    staging_config_root=staging_config,
+                    target_config_root=target_config_root,
+                    log=log,
+                )
 
-            self._handle_waybar_weather_units(
-                run_mode=config.run_mode,
-                weather_config_copied=weather_config_copied,
-                target_config_root=target_config_root,
-                log=log,
-                prompt_input=prompt_input,
-                plan=plan,
-            )
+                self._handle_waybar_weather_units(
+                    config=config,
+                    weather_config_copied=weather_config_copied,
+                    target_config_root=target_config_root,
+                    log=log,
+                )
 
-            set_step("Installing terminal configs...", 78)
-            ghostty_src = staging_config / "ghostty" / "ghostty.config"
-            if plan is None:
+                set_step("Installing terminal configs...", 78)
+                ghostty_src = staging_config / "ghostty" / "ghostty.config"
                 if ghostty_src.is_file():
                     install_file(
                         src=ghostty_src,
@@ -828,32 +780,16 @@ class InstallerOrchestrator:
                             flags=re.MULTILINE,
                         )
                         wallust_conf.write_text(txt, encoding="utf-8")
-            else:
-                plan.add(
-                    kind="copy",
-                    detail="install ghostty config",
-                    src=ghostty_src,
-                    dst=target_config_root / "ghostty" / "config",
-                )
-            wez_src = staging_config / "wezterm" / "wezterm.lua"
-            if plan is None:
+                wez_src = staging_config / "wezterm" / "wezterm.lua"
                 if wez_src.is_file():
                     install_file(
                         src=wez_src,
                         dst=target_config_root / "wezterm" / "wezterm.lua",
                         mode=0o644,
                     )
-            else:
-                plan.add(
-                    kind="copy",
-                    detail="install wezterm config",
-                    src=wez_src,
-                    dst=target_config_root / "wezterm" / "wezterm.lua",
-                )
 
-            # Optional post-copy app configs (AGS / Quickshell).
-            set_step("Installing optional app configs...", 80)
-            if plan is None:
+                # Optional post-copy app configs (AGS / Quickshell).
+                set_step("Installing optional app configs...", 80)
                 self._install_optional_app_configs(
                     config,
                     staging_config_root=staging_config,
@@ -861,12 +797,9 @@ class InstallerOrchestrator:
                     log=log,
                     prompt_confirm=prompt_confirm,
                 )
-            else:
-                plan.add(kind="copytree", detail="install optional app configs")
 
-            if config.run_mode in {"upgrade", "express"}:
-                set_step("Restoring previous configs...", 82)
-                if plan is None:
+                if config.run_mode in {"upgrade", "express"}:
+                    set_step("Restoring previous configs...", 82)
                     # If no backup was created this run, look for existing backups
                     # (including legacy copy.sh format backups)
                     if hypr_backup is None:
@@ -915,36 +848,31 @@ class InstallerOrchestrator:
                             prompt_confirm=prompt_confirm,
                             log=log,
                         )
-                else:
-                    plan.add(kind="restore", detail="restore previous configs")
 
-            set_step("Installing wallpapers...", 85)
-            if plan is None:
-                await self._install_wallpapers(config, staging_wallpapers, log)
-            else:
-                plan.add(
-                    kind="copytree", detail="install wallpapers", src=staging_wallpapers
+                set_step("Installing wallpapers...", 85)
+                await self._install_wallpapers(
+                    config,
+                    staging_wallpapers,
+                    log,
+                    home_override=sandbox_home,
                 )
 
-            set_step("Finalizing...", 92)
-            if plan is None:
+                set_step("Finalizing...", 92)
                 await self._finalize_post_copy(
                     config,
                     target_config_root,
                     log,
                     prompt_confirm=prompt_confirm,
                     prompt_password=prompt_password,
+                    sandbox_home=sandbox_home,
                 )
-            else:
-                plan.add(kind="finalize", detail="post-copy finalize")
 
-                log("[PLAN] Dry-run mode: no changes were made.")
-                for op in plan.ops:
-                    loc = ""
-                    if op.src is not None or op.dst is not None:
-                        loc = f" src={op.src} dst={op.dst}"
-                    log(f"[PLAN] {op.kind}: {op.detail}{loc}")
-                return
+        finally:
+            if sandbox is not None:
+                set_home_override(None)
+                sandbox.cleanup()
+                log("[DRY-RUN] Complete — no changes made to real system")
+                log("[DRY-RUN] Sandbox cleaned up")
 
         set_step("Complete.", 100)
 
@@ -955,19 +883,10 @@ class InstallerOrchestrator:
         is_nixos: bool,
         distro_id: str | None,
         prompt_password: PromptPasswordFn | None,
-        plan: PlanCollector | None,
+        dry_run: bool,
     ) -> None:
-        if plan is not None:
-            if is_nixos:
-                plan.add(
-                    kind="weather",
-                    detail="check waybar-weather binary (nixos warn-only)",
-                )
-            else:
-                plan.add(
-                    kind="weather",
-                    detail="attempt waybar-weather binary install (best-effort)",
-                )
+        if dry_run:
+            log("[DRY-RUN] Skipped: waybar-weather binary install")
             return
 
         if which("waybar-weather"):
@@ -1040,7 +959,6 @@ class InstallerOrchestrator:
         staging_config_root: Path,
         target_config_root: Path,
         log: LogFn,
-        plan: PlanCollector | None,
     ) -> bool:
         src = staging_config_root / WAYBAR_WEATHER_DIRNAME
         dst = target_config_root / WAYBAR_WEATHER_DIRNAME
@@ -1048,61 +966,22 @@ class InstallerOrchestrator:
         if run_mode == "install":
             if not src.is_dir():
                 log(f"[WARN] - waybar-weather config not found at {src}")
-                if plan is not None:
-                    plan.add(
-                        kind="weather",
-                        detail="weather config fresh copy skipped (source missing)",
-                        src=src,
-                        dst=dst,
-                    )
                 return False
 
             log("[INFO] - Copying waybar-weather config (fresh copy)")
-            if plan is not None:
-                plan.add(
-                    kind="copytree",
-                    detail="install waybar-weather config (fresh copy)",
-                    src=src,
-                    dst=dst,
-                )
-                return True
-
             self._copy_waybar_weather_dir(src=src, dst=dst, replace=True)
             return True
 
         if run_mode in {"upgrade", "express"}:
             if dst.exists():
                 log("[INFO] - waybar-weather config exists; skipping copy")
-                if plan is not None:
-                    plan.add(
-                        kind="weather",
-                        detail="weather config copy skipped (destination exists)",
-                        src=src,
-                        dst=dst,
-                    )
                 return False
 
             if not src.is_dir():
                 log(f"[WARN] - waybar-weather config not found at {src}")
-                if plan is not None:
-                    plan.add(
-                        kind="weather",
-                        detail="weather config copy skipped (source missing)",
-                        src=src,
-                        dst=dst,
-                    )
                 return False
 
             log("[INFO] - Copying waybar-weather config")
-            if plan is not None:
-                plan.add(
-                    kind="copytree",
-                    detail="install waybar-weather config",
-                    src=src,
-                    dst=dst,
-                )
-                return True
-
             self._copy_waybar_weather_dir(src=src, dst=dst, replace=False)
             return True
 
@@ -1124,42 +1003,19 @@ class InstallerOrchestrator:
     def _handle_waybar_weather_units(
         self,
         *,
-        run_mode: str,
+        config: InstallConfig,
         weather_config_copied: bool,
         target_config_root: Path,
         log: LogFn,
-        prompt_input: PromptInputFn | None,
-        plan: PlanCollector | None,
     ) -> None:
-        eligible = run_mode != "express" and weather_config_copied
-        if plan is not None:
-            detail = (
-                "weather units prompt applicable"
-                if eligible
-                else "weather units prompt not applicable"
-            )
-            plan.add(kind="weather", detail=detail)
-            return
+        eligible = config.run_mode != "express" and weather_config_copied
 
         if not eligible:
             return
 
-        if prompt_input is None:
-            log("[NOTE] Weather units prompt unavailable; keeping default metric units")
-            return
-
         weather_cfg = target_config_root / WAYBAR_WEATHER_DIRNAME / "config.toml"
-        while True:
-            units = prompt_input("Use Fahrenheit (F) or Celsius (C)? [C]:")
-            choice = "" if units is None else units.strip().lower()
-            if choice in {"", "c", "celsius"}:
-                return
-
-            if choice in {"f", "fahrenheit"}:
-                self._apply_waybar_weather_imperial(weather_cfg, log)
-                return
-
-            log("[WARN] Please enter 'F' or 'C'.")
+        if config.weather_units == "F":
+            self._apply_waybar_weather_imperial(weather_cfg, log)
 
     def _apply_waybar_weather_imperial(self, weather_cfg: Path, log: LogFn) -> None:
         if not weather_cfg.is_file():
@@ -1522,9 +1378,14 @@ class InstallerOrchestrator:
         add("exec-once = $scriptsDir/KeybindsLayoutInit.sh\n")
 
     async def _install_wallpapers(
-        self, cfg: InstallConfig, staging_wallpapers: Path, log: LogFn
+        self,
+        cfg: InstallConfig,
+        staging_wallpapers: Path,
+        log: LogFn,
+        *,
+        home_override: Path | None = None,
     ) -> None:
-        pictures_dir = await self._detect_pictures_dir(log)
+        pictures_dir = await self._detect_pictures_dir(log, home_override=home_override)
         target = pictures_dir / "wallpapers"
         assert_safe_path(target)
         target.mkdir(parents=True, exist_ok=True)
@@ -1583,7 +1444,11 @@ class InstallerOrchestrator:
                             shutil.copy2(item, dst)
                     log("[OK] Additional wallpapers copied.")
 
-    async def _detect_pictures_dir(self, log: LogFn) -> Path:
+    async def _detect_pictures_dir(
+        self, log: LogFn, *, home_override: Path | None = None
+    ) -> Path:
+        if home_override is not None:
+            return home_override / "Pictures"
         if which("xdg-user-dir"):
             res = await run_cmd(["xdg-user-dir", "PICTURES"], log=log)
             if res.returncode == 0:
@@ -1713,6 +1578,7 @@ class InstallerOrchestrator:
         *,
         prompt_confirm: PromptConfirmFn | None,
         prompt_password: PromptPasswordFn | None = None,
+        sandbox_home: Path | None = None,
     ) -> None:
         hypr_dir = target_config_root / "hypr"
         if hypr_dir.is_dir():
@@ -1737,9 +1603,12 @@ class InstallerOrchestrator:
         # Rofi themes local-share symlink logic.
         rofi_dir = target_config_root / "rofi"
         rofi_themes = rofi_dir / "themes"
-        data_home = Path(
-            os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))
-        )
+        if sandbox_home is not None:
+            data_home = sandbox_home / ".local/share"
+        else:
+            data_home = Path(
+                os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))
+            )
         rofi_share = data_home / "rofi" / "themes"
         try:
             rofi_share.mkdir(parents=True, exist_ok=True)
@@ -1816,7 +1685,9 @@ class InstallerOrchestrator:
         wallpaper_current = wall_effects_dir / ".wallpaper_current"
         if not wallpaper_current.exists():
             default_filename = cfg.default_wallpaper
-            pictures_dir = await self._detect_pictures_dir(log)
+            pictures_dir = await self._detect_pictures_dir(
+                log, home_override=sandbox_home
+            )
             default_img = pictures_dir / "wallpapers" / default_filename
             if not default_img.exists():
                 default_img = self.repo_root / "wallpapers" / default_filename
@@ -1830,105 +1701,114 @@ class InstallerOrchestrator:
                 )
 
         # SDDM wallpaper
-        sddm_theme = Path("/usr/share/sddm/themes/simple_sddm_2")
-        if sddm_theme.is_dir():
-            if cfg.apply_sddm_wallpaper:
-                wallpaper_src = hypr_dir / "wallpaper_effects" / ".wallpaper_current"
-                dest = sddm_theme / "Backgrounds" / "default"
-                if wallpaper_src.exists():
-                    success = await self._run_sudo_cmd(
-                        ["cp", "-r", str(wallpaper_src), str(dest)],
-                        log=log,
-                        description="apply wallpaper as SDDM background",
-                        prompt_password=prompt_password,
+        if not cfg.dry_run:
+            sddm_theme = Path("/usr/share/sddm/themes/simple_sddm_2")
+            if sddm_theme.is_dir():
+                if cfg.apply_sddm_wallpaper:
+                    wallpaper_src = (
+                        hypr_dir / "wallpaper_effects" / ".wallpaper_current"
                     )
-                    if success:
-                        log(
-                            "[NOTE] Current wallpaper applied as default SDDM background"
+                    dest = sddm_theme / "Backgrounds" / "default"
+                    if wallpaper_src.exists():
+                        success = await self._run_sudo_cmd(
+                            ["cp", "-r", str(wallpaper_src), str(dest)],
+                            log=log,
+                            description="apply wallpaper as SDDM background",
+                            prompt_password=prompt_password,
                         )
+                        if success:
+                            log(
+                                "[NOTE] Current wallpaper applied as default SDDM background"
+                            )
+                    else:
+                        log("[WARN] SDDM wallpaper source not found; skipping")
                 else:
-                    log("[WARN] SDDM wallpaper source not found; skipping")
-            else:
-                log("[NOTE] SDDM wallpaper disabled; skipping.")
+                    log("[NOTE] SDDM wallpaper disabled; skipping.")
 
-        # SDDM clock format edits
-        if not cfg.clock_24h and cfg.run_mode != "express":
-            for theme_name in ["simple_sddm_2", "simple-sddm"]:
-                theme_conf = Path(f"/usr/share/sddm/themes/{theme_name}/theme.conf")
-                if not theme_conf.is_file():
-                    continue
-                await self._run_sudo_cmd(
-                    [
-                        "sed",
-                        "-i",
-                        's|^## HourFormat="hh:mm AP"|HourFormat="hh:mm AP"|',
-                        str(theme_conf),
-                    ],
-                    log=log,
-                    description=f"update 12h clock format in {theme_name}",
-                    prompt_password=prompt_password,
-                )
-                await self._run_sudo_cmd(
-                    [
-                        "sed",
-                        "-i",
-                        's|^HourFormat="HH:mm"|## HourFormat="HH:mm"|',
-                        str(theme_conf),
-                    ],
-                    log=log,
-                    description=f"disable 24h clock format in {theme_name}",
-                    prompt_password=prompt_password,
-                )
-
-            # sequoia_2
-            theme_conf = Path("/usr/share/sddm/themes/sequoia_2/theme.conf")
-            if theme_conf.is_file():
-                await self._run_sudo_cmd(
-                    [
-                        "sed",
-                        "-i",
-                        's|^clockFormat="HH:mm"|## clockFormat="HH:mm"|',
-                        str(theme_conf),
-                    ],
-                    log=log,
-                    description="disable 24h clock format in sequoia_2",
-                    prompt_password=prompt_password,
-                )
-                # Ensure the 12h clock format line exists; avoid shell usage.
-                has_12h = await run_cmd(
-                    [
-                        "sudo",
-                        "-n",
-                        "grep",
-                        "-q",
-                        'clockFormat="hh:mm AP"',
-                        str(theme_conf),
-                    ],
-                    log=log,
-                )
-                if has_12h.returncode != 0:
+            # SDDM clock format edits
+            if not cfg.clock_24h and cfg.run_mode != "express":
+                for theme_name in ["simple_sddm_2", "simple-sddm"]:
+                    theme_conf = Path(f"/usr/share/sddm/themes/{theme_name}/theme.conf")
+                    if not theme_conf.is_file():
+                        continue
                     await self._run_sudo_cmd(
                         [
                             "sed",
                             "-i",
-                            '/^## clockFormat="HH:mm"/a clockFormat="hh:mm AP"',
+                            's|^## HourFormat="hh:mm AP"|HourFormat="hh:mm AP"|',
                             str(theme_conf),
                         ],
                         log=log,
-                        description="add 12h clock format in sequoia_2",
+                        description=f"update 12h clock format in {theme_name}",
                         prompt_password=prompt_password,
                     )
-        elif not cfg.clock_24h:
-            log("[NOTE] Express mode: skipping SDDM 12h clock edits.")
+                    await self._run_sudo_cmd(
+                        [
+                            "sed",
+                            "-i",
+                            's|^HourFormat="HH:mm"|## HourFormat="HH:mm"|',
+                            str(theme_conf),
+                        ],
+                        log=log,
+                        description=f"disable 24h clock format in {theme_name}",
+                        prompt_password=prompt_password,
+                    )
+
+                # sequoia_2
+                theme_conf = Path("/usr/share/sddm/themes/sequoia_2/theme.conf")
+                if theme_conf.is_file():
+                    await self._run_sudo_cmd(
+                        [
+                            "sed",
+                            "-i",
+                            's|^clockFormat="HH:mm"|## clockFormat="HH:mm"|',
+                            str(theme_conf),
+                        ],
+                        log=log,
+                        description="disable 24h clock format in sequoia_2",
+                        prompt_password=prompt_password,
+                    )
+                    # Ensure the 12h clock format line exists; avoid shell usage.
+                    has_12h = await run_cmd(
+                        [
+                            "sudo",
+                            "-n",
+                            "grep",
+                            "-q",
+                            'clockFormat="hh:mm AP"',
+                            str(theme_conf),
+                        ],
+                        log=log,
+                    )
+                    if has_12h.returncode != 0:
+                        await self._run_sudo_cmd(
+                            [
+                                "sed",
+                                "-i",
+                                '/^## clockFormat="HH:mm"/a clockFormat="hh:mm AP"',
+                                str(theme_conf),
+                            ],
+                            log=log,
+                            description="add 12h clock format in sequoia_2",
+                            prompt_password=prompt_password,
+                        )
+            elif not cfg.clock_24h:
+                log("[NOTE] Express mode: skipping SDDM 12h clock edits.")
+        else:
+            log("[DRY-RUN] Skipped: SDDM sudo operations")
 
         # Backup cleanup (express auto, otherwise prompt).
         cleanup_backups(
             mode=("auto" if cfg.run_mode == "express" else "prompt"),
             log=log,
             prompt_confirm=prompt_confirm,
+            config_root=target_config_root,
         )
 
         # Initialize wallust to avoid config error on hyprland.
-        wallpaper_src = hypr_dir / "wallpaper_effects" / ".wallpaper_current"
-        if which("wallust") and wallpaper_src.exists():
-            _ = await run_cmd(["wallust", "run", "-s", str(wallpaper_src)], log=log)
+        if not cfg.dry_run:
+            wallpaper_src = hypr_dir / "wallpaper_effects" / ".wallpaper_current"
+            if which("wallust") and wallpaper_src.exists():
+                _ = await run_cmd(["wallust", "run", "-s", str(wallpaper_src)], log=log)
+        else:
+            log("[DRY-RUN] Skipped: wallust run")

@@ -425,3 +425,50 @@ class TestConfigScreenFormSubmission:
                 assert any(
                     kw in content for kw in ("Ubuntu", "Debian", "confirm", "continue")
                 ), f"Expected Debian/Ubuntu validation message, got: {content!r}"
+
+    # ------------------------------------------------------------------
+    # 9. Weather Units — Celsius (default)
+    # ------------------------------------------------------------------
+
+    async def test_weather_units_default_celsius(self) -> None:
+        """By default, weather_units is set to 'C' (Celsius)."""
+        probe = _make_probe(keyboard_layout="us")
+        app = ConfigTestApp(run_mode="install", probe=probe)
+
+        with _CaptureProgress(app):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+
+                await pilot.click("#next")
+                await _dismiss_confirm(pilot, answer=True)
+
+        cfg = app.captured_config
+        assert cfg is not None
+        assert cfg.weather_units == "C"
+
+    # ------------------------------------------------------------------
+    # 10. Weather Units — Fahrenheit selection
+    # ------------------------------------------------------------------
+
+    async def test_weather_units_fahrenheit_selection(self) -> None:
+        """Selecting Fahrenheit (F) radio button sets weather_units='F'."""
+        probe = _make_probe(keyboard_layout="us")
+        app = ConfigTestApp(run_mode="install", probe=probe)
+
+        with _CaptureProgress(app):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+
+                # Select the Fahrenheit (F) radio button.
+                rs = app.screen.query_one("#weather_units", RadioSet)
+                buttons = list(rs.query(RadioButton))
+                assert len(buttons) >= 2, "Expected Celsius and Fahrenheit options"
+                buttons[1].value = True  # Fahrenheit is second option
+                await pilot.pause()
+
+                await pilot.click("#next")
+                await _dismiss_confirm(pilot, answer=True)
+
+        cfg = app.captured_config
+        assert cfg is not None
+        assert cfg.weather_units == "F"

@@ -39,7 +39,7 @@ jobs:
       - name: Checkout dev branch
         uses: actions/checkout@v6
         with:
-          ref: dev
+          ref: development
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -74,7 +74,7 @@ jobs:
       - name: Checkout dev branch
         uses: actions/checkout@v6
         with:
-          ref: dev
+          ref: development
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
