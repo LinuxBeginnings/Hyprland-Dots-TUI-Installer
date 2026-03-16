@@ -105,6 +105,7 @@ class InstallConfig:
     enable_ags: bool
     enable_quickshell: bool
     apply_sddm_wallpaper: bool = True
+    weather_units: Literal["F", "C"] = "C"
     dry_run: bool = False
     default_wallpaper: str = "Lofi-Cafe1.png"
 

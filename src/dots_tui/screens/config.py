@@ -6,6 +6,7 @@
 # ============================================================================
 from __future__ import annotations
 
+from typing import Literal
 from textual import events
 from textual.containers import Container, VerticalScroll
 from textual.screen import Screen
@@ -106,6 +107,11 @@ class ConfigScreen(Screen[None]):
                     yield Label("Use 12h")
                     yield Switch(value=True, id="clock_24h")
                     yield Label("Use 24h")
+
+                yield Label("Weather Units")
+                with RadioSet(id="weather_units"):
+                    yield RadioButton("Celsius (C)", id="weather_c", value=True)
+                    yield RadioButton("Fahrenheit (F)", id="weather_f")
 
                 yield Label("Default editor", id="editor_label", classes="hidden")
                 with RadioSet(id="editor", classes="hidden"):
@@ -438,6 +444,11 @@ class ConfigScreen(Screen[None]):
 
         clock_24h = self.query_one("#clock_24h", Switch).value
 
+        weather_units_rs = self.query_one("#weather_units", RadioSet)
+        weather_units: Literal["F", "C"] = (
+            "F" if weather_units_rs.pressed_index == 1 else "C"
+        )
+
         default_editor: EditorChoice | None = None
         if self._has_nvim or self._has_vim:
             try:
@@ -466,6 +477,7 @@ class ConfigScreen(Screen[None]):
             resolution=resolution,
             keyboard_layout=kb,
             clock_24h=clock_24h,
+            weather_units=weather_units,
             default_editor=default_editor,
             download_wallpapers=dl_walls,
             apply_sddm_wallpaper=sddm,

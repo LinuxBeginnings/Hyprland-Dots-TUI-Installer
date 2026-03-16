@@ -801,11 +801,10 @@ class InstallerOrchestrator:
             )
 
             self._handle_waybar_weather_units(
-                run_mode=config.run_mode,
+                config=config,
                 weather_config_copied=weather_config_copied,
                 target_config_root=target_config_root,
                 log=log,
-                prompt_input=prompt_input,
                 plan=plan,
             )
 
@@ -1124,14 +1123,13 @@ class InstallerOrchestrator:
     def _handle_waybar_weather_units(
         self,
         *,
-        run_mode: str,
+        config: InstallConfig,
         weather_config_copied: bool,
         target_config_root: Path,
         log: LogFn,
-        prompt_input: PromptInputFn | None,
         plan: PlanCollector | None,
     ) -> None:
-        eligible = run_mode != "express" and weather_config_copied
+        eligible = config.run_mode != "express" and weather_config_copied
         if plan is not None:
             detail = (
                 "weather units prompt applicable"
@@ -1144,22 +1142,9 @@ class InstallerOrchestrator:
         if not eligible:
             return
 
-        if prompt_input is None:
-            log("[NOTE] Weather units prompt unavailable; keeping default metric units")
-            return
-
         weather_cfg = target_config_root / WAYBAR_WEATHER_DIRNAME / "config.toml"
-        while True:
-            units = prompt_input("Use Fahrenheit (F) or Celsius (C)? [C]:")
-            choice = "" if units is None else units.strip().lower()
-            if choice in {"", "c", "celsius"}:
-                return
-
-            if choice in {"f", "fahrenheit"}:
-                self._apply_waybar_weather_imperial(weather_cfg, log)
-                return
-
-            log("[WARN] Please enter 'F' or 'C'.")
+        if config.weather_units == "F":
+            self._apply_waybar_weather_imperial(weather_cfg, log)
 
     def _apply_waybar_weather_imperial(self, weather_cfg: Path, log: LogFn) -> None:
         if not weather_cfg.is_file():
