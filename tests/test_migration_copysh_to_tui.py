@@ -96,7 +96,7 @@ def test_migration_from_copysh_discovers_legacy_backup(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     logs: list[str] = []
 

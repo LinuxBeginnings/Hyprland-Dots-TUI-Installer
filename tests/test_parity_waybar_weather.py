@@ -77,7 +77,7 @@ def test_install_mode_refreshes_weather_config(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -113,7 +113,7 @@ def test_upgrade_mode_preserves_existing_weather_config(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -145,7 +145,7 @@ def test_express_mode_copies_missing_weather_config_without_prompt(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -183,7 +183,7 @@ def test_non_express_existing_weather_config_does_not_prompt_units(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -230,7 +230,7 @@ def test_nixos_missing_binary_warns_and_does_not_attempt_install(
             is_nixos=True,
             distro_id="nixos",
             prompt_password=None,
-            plan=None,
+            dry_run=False,
         )
     )
 
@@ -250,7 +250,7 @@ def test_non_nixos_install_failure_is_non_fatal_and_continues(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     async def fail_attempt(**_kwargs) -> bool:
         raise RuntimeError("boom")
@@ -290,7 +290,7 @@ def test_units_from_config_gating_and_outcomes(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",
@@ -338,7 +338,7 @@ def test_fahrenheit_adds_units_when_key_is_absent(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         orch,
         "_handle_waybar_weather_binary",

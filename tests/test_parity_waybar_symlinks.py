@@ -115,7 +115,7 @@ def test_waybar_regular_files_are_converted_to_canonical_symlinks(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     logs: list[str] = []
     _run_install(
@@ -164,7 +164,7 @@ def test_waybar_mismatched_symlinks_are_reset_to_canonical_targets(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     logs: list[str] = []
     _run_install(
@@ -205,7 +205,7 @@ def test_waybar_broken_symlinks_are_reset_to_canonical_targets(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     logs: list[str] = []
     _run_install(
@@ -256,7 +256,7 @@ def test_waybar_already_canonical_symlinks_are_left_unchanged(
 
     orch = InstallerOrchestrator()
     orch.repo_root = fake_home.home / "repo"
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         "dots_tui.logic.orchestrator.cleanup_backups", lambda **_kwargs: None
     )
@@ -300,7 +300,7 @@ def test_missing_canonical_targets_warn_and_do_not_mutate_destination(
 
     orch = InstallerOrchestrator()
     orch.repo_root = fake_home.home / "repo"
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
         "dots_tui.logic.orchestrator.cleanup_backups", lambda **_kwargs: None
     )
@@ -348,7 +348,7 @@ def test_replacement_error_logs_warning_and_finalization_continues(
 
     orch = InstallerOrchestrator()
     orch.repo_root = fake_home.home / "repo"
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     original_symlink_to = Path.symlink_to
 
@@ -363,7 +363,7 @@ def test_replacement_error_logs_warning_and_finalization_continues(
 
     cleanup_called = {"value": False}
 
-    def mark_cleanup(*, mode, log, prompt_confirm) -> None:
+    def mark_cleanup(*, mode, log, prompt_confirm, **_kw) -> None:
         _ = mode
         _ = log
         _ = prompt_confirm

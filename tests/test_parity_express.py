@@ -66,7 +66,7 @@ def test_express_upgrade_skips_restore_prompts_and_auto_cleans_backups(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     cfg = InstallConfig(
         run_mode="express",
@@ -147,7 +147,7 @@ def test_express_upgrade_skips_sddm_12h_clock_edits(
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     cfg = InstallConfig(
         run_mode="express",

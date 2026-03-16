@@ -65,7 +65,7 @@ def test_run_install_writes_only_to_fake_home(
     # Make orchestrator use our fake repo.
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
-    monkeypatch.setattr(orch, "_copy_logs_dir", lambda: fake_home.copy_logs)
+    monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
     logs: list[str] = []
 
