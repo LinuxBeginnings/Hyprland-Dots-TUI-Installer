@@ -4,8 +4,9 @@
 #  License: GNU GPLv3
 #  SPDX-License-Identifier: GPL-3.0-or-later
 # ============================================================================
-from __future__ import annotations
+"""Test that ghostty config directory is backed up before copying."""
 
+from __future__ import annotations
 
 import asyncio
 import pytest
@@ -13,49 +14,43 @@ import pytest
 from dots_tui.logic.models import InstallConfig
 from dots_tui.logic.orchestrator import InstallerOrchestrator
 
-from tests.helpers import CmdRecorder, write_text
+from tests.helpers import CmdRecorder, read_text, write_text
 
 
-def test_express_upgrade_skips_restore_prompts_and_auto_cleans_backups(
+def test_ghostty_backup_before_install(
     fake_home,
     monkeypatch: pytest.MonkeyPatch,
     prompt_replace_yes,
+    prompt_confirm_yes,
 ) -> None:
-    # Seed fake repo
+    """Verify ~/.config/ghostty is backed up before copying ghostty config."""
+
+    # Seed fake repo with ghostty config
     repo_root = fake_home.home / "repo"
     (repo_root / "config").mkdir(parents=True)
     (repo_root / "scripts").mkdir(parents=True)
 
+    # Ghostty source config (named ghostty.config in repo, installed as config)
+    write_text(
+        repo_root / "config" / "ghostty" / "ghostty.config",
+        "font-size = 14\ntheme = dark\n",
+    )
+
+    # Required hypr config to avoid errors
     write_text(repo_root / "config" / "hypr" / "v2.3.19", "")
     write_text(
         repo_root / "config" / "hypr" / "configs" / "SystemSettings.conf",
         "  kb_layout = us\n",
     )
-    write_text(repo_root / "config" / "rofi" / "themes" / "a.rasi", "/* x */\n")
-    (repo_root / "config" / "waybar" / "configs").mkdir(parents=True)
-    write_text(repo_root / "config" / "waybar" / "configs" / "[TOP] Default", "{}\n")
-    (repo_root / "config" / "waybar" / "style").mkdir(parents=True)
     write_text(
-        repo_root / "config" / "waybar" / "style" / "[Extra] Neon Circuit.css",
-        "/* css */\n",
-    )
-    # Add ghostty config to repo
-    write_text(
-        repo_root / "config" / "ghostty" / "ghostty.config",
-        "font_size = 14\n",
+        repo_root / "config" / "hypr" / "UserConfigs" / "01-UserDefaults.conf",
+        "#env = EDITOR,nvim\n",
     )
 
-    # Seed existing configs + multiple backups so cleanup_backups(auto) has work.
-    base = fake_home.config / "kitty"
-    write_text(base / "kitty.conf", "font_size 16.0\n")
-    write_text(fake_home.config / "hypr" / "v2.3.19", "")
-    # Create ghostty config and backups to test cleanup
-    write_text(fake_home.config / "ghostty" / "config", "font_size 14\n")
-    # Create multiple backups sibling dirs
-    (fake_home.config / "kitty-backup-01_01_0001").mkdir(parents=True)
-    (fake_home.config / "kitty-backup-01_01_0002").mkdir(parents=True)
-    (fake_home.config / "ghostty-backup-01_01_0001").mkdir(parents=True)
-    (fake_home.config / "ghostty-backup-01_01_0002").mkdir(parents=True)
+    # Seed existing ghostty config that should be backed up
+    existing_ghostty = fake_home.config / "ghostty"
+    write_text(existing_ghostty / "config", "font-size = 12\ntheme = light\n")
+    write_text(existing_ghostty / "themes" / "custom.conf", "custom theme\n")
 
     # Stub system/commands
     recorder = CmdRecorder()
@@ -70,15 +65,20 @@ def test_express_upgrade_skips_restore_prompts_and_auto_cleans_backups(
     monkeypatch.setattr("dots_tui.logic.system.detect_nixos", lambda: False)
     monkeypatch.setattr(
         "dots_tui.logic.system.get_installed_dotfiles_version",
-        lambda _root: "2.3.19",
+        lambda _root: None,
     )
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
     monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
+    logs: list[str] = []
+
+    def log(line: str) -> None:
+        logs.append(line)
+
     cfg = InstallConfig(
-        run_mode="express",
+        run_mode="install",
         resolution="gte_1440p",
         keyboard_layout="us",
         clock_24h=True,
@@ -89,60 +89,78 @@ def test_express_upgrade_skips_restore_prompts_and_auto_cleans_backups(
         enable_asus=False,
         enable_blueman=True,
         enable_ags=False,
-        enable_quickshell=True,
+        enable_quickshell=False,
     )
-
-    # Express should skip restore prompts, but is allowed to prompt for
-    # non-express backup cleanup only if mode is prompt. In express it should be auto.
-    # We pass a confirm handler that always returns True to avoid failures if other
-    # unrelated prompts occur.
-    def prompt_confirm_ok(_m: str, _y: str, _n: str, _d: bool) -> bool:
-        return True
 
     asyncio.run(
         orch.run_install(
             cfg,
-            log=lambda _l: None,
-            log_file=fake_home.copy_logs / "express-test.log",
+            log=log,
+            log_file=fake_home.copy_logs / "ghostty-test.log",
             set_step=lambda _m, _p: None,
             prompt_replace=prompt_replace_yes,
-            prompt_confirm=prompt_confirm_ok,
+            prompt_confirm=prompt_confirm_yes,
         )
     )
 
-    # Assert: backup cleanup auto-trimmed old backups (keeps only latest by mtime).
-    kitty_backups = [p for p in fake_home.config.glob("kitty-backup-*") if p.is_dir()]
-    assert len(kitty_backups) == 1
-    ghostty_backups = [
-        p for p in fake_home.config.glob("ghostty-backup-*") if p.is_dir()
-    ]
-    assert len(ghostty_backups) == 1
+    # Verify: Backup was created
+    assert any("Backed up ghostty" in line for line in logs), (
+        "Expected ghostty backup log message"
+    )
+
+    # Verify: Backup directory exists with pattern ghostty-backup-*
+    backups = list(fake_home.config.glob("ghostty-backup-*"))
+    assert len(backups) == 1, f"Expected 1 ghostty backup, found {len(backups)}"
+
+    backup_dir = backups[0]
+    assert backup_dir.is_dir()
+
+    # Verify: Original files are in backup
+    assert (backup_dir / "config").is_file()
+    assert "font-size = 12" in read_text(backup_dir / "config")
+    assert (backup_dir / "themes" / "custom.conf").is_file()
+    assert "custom theme" in read_text(backup_dir / "themes" / "custom.conf")
+
+    # Verify: New config was installed
+    assert (fake_home.config / "ghostty" / "config").is_file()
+    assert "font-size = 14" in read_text(fake_home.config / "ghostty" / "config")
+
+    # Verify: Install log message
+    assert any("Installed ghostty config" in line for line in logs)
 
 
-def test_express_upgrade_skips_sddm_12h_clock_edits(
+def test_ghostty_no_backup_when_no_existing_config(
     fake_home,
     monkeypatch: pytest.MonkeyPatch,
     prompt_replace_yes,
+    prompt_confirm_yes,
 ) -> None:
+    """Verify no backup attempt when ghostty config doesn't exist."""
+
+    # Seed fake repo with ghostty config
     repo_root = fake_home.home / "repo"
     (repo_root / "config").mkdir(parents=True)
     (repo_root / "scripts").mkdir(parents=True)
 
+    write_text(
+        repo_root / "config" / "ghostty" / "ghostty.config",
+        "font-size = 14\n",
+    )
+
+    # Required hypr config
     write_text(repo_root / "config" / "hypr" / "v2.3.19", "")
     write_text(
         repo_root / "config" / "hypr" / "configs" / "SystemSettings.conf",
         "  kb_layout = us\n",
     )
-    write_text(repo_root / "config" / "rofi" / "themes" / "a.rasi", "/* x */\n")
-    (repo_root / "config" / "waybar" / "configs").mkdir(parents=True)
-    write_text(repo_root / "config" / "waybar" / "configs" / "[TOP] Default", "{}\n")
-    (repo_root / "config" / "waybar" / "style").mkdir(parents=True)
     write_text(
-        repo_root / "config" / "waybar" / "style" / "[Extra] Neon Circuit.css",
-        "/* css */\n",
+        repo_root / "config" / "hypr" / "UserConfigs" / "01-UserDefaults.conf",
+        "#env = EDITOR,nvim\n",
     )
-    write_text(fake_home.config / "hypr" / "v2.3.19", "")
 
+    # NO existing ghostty config
+
+    # Stub system/commands
     recorder = CmdRecorder()
     monkeypatch.setattr("dots_tui.utils.run_cmd", recorder.run)
     monkeypatch.setattr("dots_tui.utils.is_root", lambda: False)
@@ -155,18 +173,23 @@ def test_express_upgrade_skips_sddm_12h_clock_edits(
     monkeypatch.setattr("dots_tui.logic.system.detect_nixos", lambda: False)
     monkeypatch.setattr(
         "dots_tui.logic.system.get_installed_dotfiles_version",
-        lambda _root: "2.3.19",
+        lambda _root: None,
     )
 
     orch = InstallerOrchestrator()
     orch.repo_root = repo_root
     monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
 
+    logs: list[str] = []
+
+    def log(line: str) -> None:
+        logs.append(line)
+
     cfg = InstallConfig(
-        run_mode="express",
+        run_mode="install",
         resolution="gte_1440p",
         keyboard_layout="us",
-        clock_24h=False,
+        clock_24h=True,
         default_editor=None,
         download_wallpapers=False,
         apply_sddm_wallpaper=False,
@@ -174,26 +197,30 @@ def test_express_upgrade_skips_sddm_12h_clock_edits(
         enable_asus=False,
         enable_blueman=True,
         enable_ags=False,
-        enable_quickshell=True,
+        enable_quickshell=False,
     )
-
-    def prompt_confirm_ok(_m: str, _y: str, _n: str, _d: bool) -> bool:
-        return True
 
     asyncio.run(
         orch.run_install(
             cfg,
-            log=lambda _l: None,
-            log_file=fake_home.copy_logs / "express-sddm-clock-test.log",
+            log=log,
+            log_file=fake_home.copy_logs / "ghostty-test.log",
             set_step=lambda _m, _p: None,
             prompt_replace=prompt_replace_yes,
-            prompt_confirm=prompt_confirm_ok,
+            prompt_confirm=prompt_confirm_yes,
         )
     )
 
-    assert not any(
-        call.argv
-        and "sed" in call.argv
-        and any("/usr/share/sddm/themes/" in arg for arg in call.argv)
-        for call in recorder.calls
-    )
+    # Verify: No backup message (no existing config)
+    assert not any("Backed up ghostty" in line for line in logs)
+
+    # Verify: No backup directories
+    backups = list(fake_home.config.glob("ghostty-backup-*"))
+    assert len(backups) == 0
+
+    # Verify: Config was still installed
+    assert (fake_home.config / "ghostty" / "config").is_file()
+    assert "font-size = 14" in read_text(fake_home.config / "ghostty" / "config")
+
+    # Verify: Install log message
+    assert any("Installed ghostty config" in line for line in logs)
