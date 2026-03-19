@@ -53,10 +53,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> None:
     from dots_tui.app import run
 
-    args = parse_args()
+    args = parse_args(argv)
 
     start = None
     if args.upgrade:
@@ -69,3 +69,7 @@ if __name__ == "__main__":
         os.environ["TEXTUAL"] = "devtools"
 
     run(dry_run=args.dry_run, start=start, verbose=args.verbose)
+
+
+if __name__ == "__main__":
+    main()
