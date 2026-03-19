@@ -23,7 +23,7 @@ from dots_tui.logic.copy_ops import (
     restore_rofi_from_backup,
 )
 from dots_tui.logic.dedupe import cleanup_duplicate_userconfigs
-from dots_tui.logic.backup import cleanup_backups
+from dots_tui.logic.backup import backup_dir, cleanup_backups
 from dots_tui.logic.models import (
     EnvironmentInfo,
     InstallConfig,
@@ -765,11 +765,17 @@ class InstallerOrchestrator:
                 set_step("Installing terminal configs...", 78)
                 ghostty_src = staging_config / "ghostty" / "ghostty.config"
                 if ghostty_src.is_file():
+                    ghostty_dir = target_config_root / "ghostty"
+                    if ghostty_dir.exists():
+                        ghostty_backup = backup_dir(ghostty_dir)
+                        if ghostty_backup:
+                            log(f"[NOTE] - Backed up ghostty to {ghostty_backup}")
                     install_file(
                         src=ghostty_src,
                         dst=target_config_root / "ghostty" / "config",
                         mode=0o644,
                     )
+                    log("[OK] - Installed ghostty config")
                     wallust_conf = target_config_root / "ghostty" / "wallust.conf"
                     if wallust_conf.is_file():
                         txt = wallust_conf.read_text(encoding="utf-8", errors="replace")
