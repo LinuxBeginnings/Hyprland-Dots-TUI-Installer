@@ -39,14 +39,23 @@ def test_express_upgrade_skips_restore_prompts_and_auto_cleans_backups(
         repo_root / "config" / "waybar" / "style" / "[Extra] Neon Circuit.css",
         "/* css */\n",
     )
+    # Add ghostty config to repo
+    write_text(
+        repo_root / "config" / "ghostty" / "ghostty.config",
+        "font_size = 14\n",
+    )
 
     # Seed existing configs + multiple backups so cleanup_backups(auto) has work.
     base = fake_home.config / "kitty"
     write_text(base / "kitty.conf", "font_size 16.0\n")
     write_text(fake_home.config / "hypr" / "v2.3.19", "")
+    # Create ghostty config and backups to test cleanup
+    write_text(fake_home.config / "ghostty" / "config", "font_size 14\n")
     # Create multiple backups sibling dirs
     (fake_home.config / "kitty-backup-01_01_0001").mkdir(parents=True)
     (fake_home.config / "kitty-backup-01_01_0002").mkdir(parents=True)
+    (fake_home.config / "ghostty-backup-01_01_0001").mkdir(parents=True)
+    (fake_home.config / "ghostty-backup-01_01_0002").mkdir(parents=True)
 
     # Stub system/commands
     recorder = CmdRecorder()
@@ -102,8 +111,12 @@ def test_express_upgrade_skips_restore_prompts_and_auto_cleans_backups(
     )
 
     # Assert: backup cleanup auto-trimmed old backups (keeps only latest by mtime).
-    backups = [p for p in fake_home.config.glob("kitty-backup-*") if p.is_dir()]
-    assert len(backups) == 1
+    kitty_backups = [p for p in fake_home.config.glob("kitty-backup-*") if p.is_dir()]
+    assert len(kitty_backups) == 1
+    ghostty_backups = [
+        p for p in fake_home.config.glob("ghostty-backup-*") if p.is_dir()
+    ]
+    assert len(ghostty_backups) == 1
 
 
 def test_express_upgrade_skips_sddm_12h_clock_edits(
