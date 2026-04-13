@@ -46,7 +46,14 @@ uv run pyinstaller build.spec  # Output: dist/dots-tui
 - **Utilities**: `utils.py` - Async subprocess execution and output sanitization
 
 ### Key Modules
-- **orchestrator.py** - Stages files, applies tweaks, copies configs, handles components, restores backups
+- **orchestrator.py** - `InstallerOrchestrator` class: `run_install()` flow coordination, sudo management, log sink, sandbox lifecycle. ~997 lines. Delegates all domain work to focused modules below.
+- **tweaks.py** - System config tweaks: `apply_nvidia_tweaks`, `apply_vm_tweaks`, `apply_nixos_tweaks`, `apply_hyprcursor_tweaks`. Pure sync functions, no class state.
+- **systemd_services.py** - Systemd service management: `setup_systemd_services`, daemon reload, conflict detection, service enable/start.
+- **waybar_weather.py** - Waybar weather module: `handle_waybar_weather_binary`, `handle_waybar_weather_config`, `handle_waybar_weather_units`.
+- **wallpaper.py** - Wallpaper installation: `install_wallpapers`, `detect_pictures_dir` (XDG-aware).
+- **optional_apps.py** - Optional app configs: `install_optional_app_configs` (AGS, Quickshell).
+- **user_config.py** - User preference application: `apply_user_choices` (keyboard layout, editor, resolution, clock format).
+- **repo_ops.py** - Repository operations: `download_repo`, `update_repo`, `ensure_repo_root_for_install`.
 - **models.py** - Type definitions (InstallConfig, EnvironmentInfo, etc.)
 - **env_probe.py** - Async environment detection (runs during startup, non-blocking)
 - **system.py** - Sync system detection used during installation
@@ -199,6 +206,18 @@ from __future__ import annotations
 - Prefer `dict | None` over `Optional[dict]`
 - Use type guards: `if isinstance(obj, MyType):`
 - Validate paths with `path_safety.assert_safe_path()` before mutations
+
+### File Responsibility Principle
+- **Each file owns one domain.** A module should do one thing and do it completely.
+- **New logic goes into the most specific module that owns that domain** — not into `orchestrator.py`.
+  - New GPU/display tweaks → `tweaks.py`
+  - New systemd service setup → `systemd_services.py`
+  - New wallpaper source or detection logic → `wallpaper.py`
+  - New optional app config → `optional_apps.py`
+  - New user preference → `user_config.py`
+  - New repo/download step → `repo_ops.py`
+- **`orchestrator.py` is the integration layer only.** It calls focused modules; it does not implement domain logic itself.
+- **When no existing module fits, create a new focused one.** A short, well-named file is better than an ever-growing `orchestrator.py`.
 
 ### Dry-Run Sandbox
 The `--dry-run` flag creates a **temporary directory sandbox** (not the real home):
