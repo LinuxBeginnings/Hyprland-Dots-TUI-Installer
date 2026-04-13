@@ -1,3 +1,9 @@
+# ============================================================================
+#  KoolDots TUI Installer (2026)
+#  Project URL: https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer
+#  License: GNU GPLv3
+#  SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
 from __future__ import annotations
 
 import asyncio
@@ -7,6 +13,8 @@ import pytest
 
 from dots_tui.logic.models import InstallConfig
 from dots_tui.logic.orchestrator import InstallerOrchestrator
+import dots_tui.logic.waybar_weather as waybar_weather_mod
+import dots_tui.logic.wallpaper as wallpaper_mod
 from dots_tui.utils import CmdResult
 
 
@@ -38,8 +46,9 @@ def test_install_bootstraps_repo_when_runtime_sources_are_missing(
         "dots_tui.logic.orchestrator.Path.cwd",
         classmethod(lambda _cls: standalone),
     )
+    # Path.home is used in repo_ops.py for ensure_repo_root_for_install
     monkeypatch.setattr(
-        "dots_tui.logic.orchestrator.Path.home",
+        "dots_tui.logic.repo_ops.Path.home",
         classmethod(lambda _cls: fake_home.home),
     )
 
@@ -61,11 +70,11 @@ def test_install_bootstraps_repo_when_runtime_sources_are_missing(
             (target / "scripts").mkdir(parents=True, exist_ok=True)
         return CmdResult(argv=list(argv), returncode=0, output="")
 
-    monkeypatch.setattr("dots_tui.logic.orchestrator.run_cmd", fake_run_cmd)
+    # run_cmd is now called via dots_tui.utils in repo_ops.py
+    monkeypatch.setattr("dots_tui.utils.run_cmd", fake_run_cmd)
     monkeypatch.setattr("dots_tui.logic.orchestrator.is_root", lambda: False)
-    monkeypatch.setattr(
-        "dots_tui.logic.orchestrator.which", lambda _cmd: "/usr/bin/git"
-    )
+    # which is now called via dots_tui.utils in repo_ops.py
+    monkeypatch.setattr("dots_tui.utils.which", lambda _cmd: "/usr/bin/git")
     monkeypatch.setattr(
         "dots_tui.logic.orchestrator.detect_distro", lambda: ("arch", [])
     )
@@ -83,8 +92,8 @@ def test_install_bootstraps_repo_when_runtime_sources_are_missing(
     async def noop_async(*_args, **_kwargs) -> None:
         return None
 
-    monkeypatch.setattr(orch, "_handle_waybar_weather_binary", noop_async)
-    monkeypatch.setattr(orch, "_install_wallpapers", noop_async)
+    monkeypatch.setattr(waybar_weather_mod, "handle_waybar_weather_binary", noop_async)
+    monkeypatch.setattr(wallpaper_mod, "install_wallpapers", noop_async)
     monkeypatch.setattr(orch, "_finalize_post_copy", noop_async)
 
     asyncio.run(

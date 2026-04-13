@@ -1,3 +1,9 @@
+# ============================================================================
+#  KoolDots TUI Installer (2026)
+#  Project URL: https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer
+#  License: GNU GPLv3
+#  SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +14,7 @@ import pytest
 
 from dots_tui.logic.models import InstallConfig, RunMode
 from dots_tui.logic.orchestrator import InstallerOrchestrator
+import dots_tui.logic.waybar_weather as waybar_weather_mod
 
 from tests.helpers import CmdRecorder, read_text, write_text
 
@@ -79,8 +86,8 @@ def test_install_mode_refreshes_weather_config(
     orch.repo_root = repo_root
     monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
-        orch,
-        "_handle_waybar_weather_binary",
+        waybar_weather_mod,
+        "handle_waybar_weather_binary",
         lambda **_kwargs: asyncio.sleep(0),
     )
 
@@ -115,8 +122,8 @@ def test_upgrade_mode_preserves_existing_weather_config(
     orch.repo_root = repo_root
     monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
-        orch,
-        "_handle_waybar_weather_binary",
+        waybar_weather_mod,
+        "handle_waybar_weather_binary",
         lambda **_kwargs: asyncio.sleep(0),
     )
 
@@ -147,8 +154,8 @@ def test_express_mode_copies_missing_weather_config_without_prompt(
     orch.repo_root = repo_root
     monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
-        orch,
-        "_handle_waybar_weather_binary",
+        waybar_weather_mod,
+        "handle_waybar_weather_binary",
         lambda **_kwargs: asyncio.sleep(0),
     )
 
@@ -185,8 +192,8 @@ def test_non_express_existing_weather_config_does_not_prompt_units(
     orch.repo_root = repo_root
     monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
-        orch,
-        "_handle_waybar_weather_binary",
+        waybar_weather_mod,
+        "handle_waybar_weather_binary",
         lambda **_kwargs: asyncio.sleep(0),
     )
 
@@ -212,24 +219,28 @@ def test_non_express_existing_weather_config_does_not_prompt_units(
 def test_nixos_missing_binary_warns_and_does_not_attempt_install(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    orch = InstallerOrchestrator()
     logs: list[str] = []
     attempted = {"value": False}
 
-    monkeypatch.setattr("dots_tui.logic.orchestrator.which", lambda _cmd: None)
+    monkeypatch.setattr("dots_tui.utils.which", lambda _cmd: None)
 
     async def fail_attempt(**_kwargs) -> bool:
         attempted["value"] = True
         return False
 
-    monkeypatch.setattr(orch, "_attempt_waybar_weather_install", fail_attempt)
+    monkeypatch.setattr(
+        waybar_weather_mod, "_attempt_waybar_weather_install", fail_attempt
+    )
+
+    from pathlib import Path
 
     asyncio.run(
-        orch._handle_waybar_weather_binary(
+        waybar_weather_mod.handle_waybar_weather_binary(
+            repo_root=Path("/tmp/fake-repo"),
             log=logs.append,
             is_nixos=True,
             distro_id="nixos",
-            prompt_password=None,
+            run_sudo_cmd=lambda *_a, **_kw: asyncio.sleep(0),  # type: ignore[arg-type]
             dry_run=False,
         )
     )
@@ -255,7 +266,9 @@ def test_non_nixos_install_failure_is_non_fatal_and_continues(
     async def fail_attempt(**_kwargs) -> bool:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(orch, "_attempt_waybar_weather_install", fail_attempt)
+    monkeypatch.setattr(
+        waybar_weather_mod, "_attempt_waybar_weather_install", fail_attempt
+    )
 
     logs: list[str] = []
     asyncio.run(
@@ -292,8 +305,8 @@ def test_units_from_config_gating_and_outcomes(
     orch.repo_root = repo_root
     monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
-        orch,
-        "_handle_waybar_weather_binary",
+        waybar_weather_mod,
+        "handle_waybar_weather_binary",
         lambda **_kwargs: asyncio.sleep(0),
     )
 
@@ -340,8 +353,8 @@ def test_fahrenheit_adds_units_when_key_is_absent(
     orch.repo_root = repo_root
     monkeypatch.setattr(orch, "_copy_logs_dir", lambda **_kw: fake_home.copy_logs)
     monkeypatch.setattr(
-        orch,
-        "_handle_waybar_weather_binary",
+        waybar_weather_mod,
+        "handle_waybar_weather_binary",
         lambda **_kwargs: asyncio.sleep(0),
     )
 

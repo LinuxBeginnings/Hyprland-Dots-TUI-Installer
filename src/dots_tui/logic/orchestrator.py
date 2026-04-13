@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import os
-import gzip
 import re
 import shutil
 import tempfile
@@ -22,7 +21,6 @@ from dots_tui.logic.copy_ops import (
     install_file,
     restore_rofi_from_backup,
 )
-from dots_tui.logic.dedupe import cleanup_duplicate_userconfigs
 from dots_tui.logic.backup import backup_dir, cleanup_backups
 from dots_tui.logic.models import (
     EnvironmentInfo,
@@ -50,11 +48,17 @@ from dots_tui.logic.system import (
     get_installed_dotfiles_version,
     MIN_EXPRESS_VERSION,
     version_gte,
-    replace_kb_layout,
 )
 import dots_tui.utils as utils
 
 from dots_tui.logic.path_safety import assert_safe_path, set_home_override
+import dots_tui.logic.tweaks as tweaks
+import dots_tui.logic.systemd_services as systemd_services
+import dots_tui.logic.waybar_weather as waybar_weather_mod
+import dots_tui.logic.wallpaper as wallpaper_mod
+import dots_tui.logic.optional_apps as optional_apps_mod
+import dots_tui.logic.user_config as user_config_mod
+import dots_tui.logic.repo_ops as repo_ops_mod
 
 
 def is_root() -> bool:
@@ -91,21 +95,8 @@ async def run_cmd(
 
 
 # ============================================================================
-# Path Constants - Centralized config file paths to reduce magic strings
+# Path Constants - Orchestrator-local config file paths
 # ============================================================================
-
-# Hyprland config paths (relative to staging_config or target_config)
-HYPR_CONFIGS_DIR = Path("hypr/configs")
-HYPR_USERCONFIGS_DIR = Path("hypr/UserConfigs")
-HYPR_SCRIPTS_DIR = Path("hypr/scripts")
-
-# Specific config files
-HYPR_ENV_VARS = HYPR_CONFIGS_DIR / "ENVariables.conf"
-HYPR_SYSTEM_SETTINGS = HYPR_CONFIGS_DIR / "SystemSettings.conf"
-HYPR_STARTUP_APPS = HYPR_CONFIGS_DIR / "Startup_Apps.conf"
-HYPR_STARTUP_DISABLE = HYPR_CONFIGS_DIR / "Startup_Apps.disable"
-HYPR_MONITORS = Path("hypr/monitors.conf")
-HYPR_USER_DEFAULTS = HYPR_USERCONFIGS_DIR / "01-UserDefaults.conf"
 
 # Phase 1 config directories (prompt for replacement)
 PHASE1_CONFIGS = ["fastfetch", "kitty", "rofi", "swaync"]
@@ -122,21 +113,6 @@ PHASE2_CONFIGS = [
     "wallust",
     "wlogout",
 ]
-
-DOTFILES_REPO_URL = "https://github.com/LinuxBeginnings/Hyprland-Dots"
-DOTFILES_REPO_DIRNAME = "Hyprland-Dots"
-WAYBAR_WEATHER_DIRNAME = "waybar-weather"
-
-# Systemd service management
-SYSTEMD_SERVICES: list[str] = ["hyprpolkitagent"]
-SYSTEMD_CONFLICT_PATTERNS: dict[str, list[str]] = {
-    "hyprpolkitagent": [
-        "xfce-polkit",
-        "polkit-gnome-authentication-agent-1",
-        "polkit-kde-authentication-agent-1",
-        "hyprpolkitagent",
-    ]
-}
 
 
 class InstallerOrchestrator:
@@ -169,68 +145,34 @@ class InstallerOrchestrator:
         if not (self.repo_root / "config").is_dir():
             raise RuntimeError(f"Expected repo root with config/: {self.repo_root}")
 
-    async def _ensure_repo_root_for_install(
+    async def update_repo(
         self,
         *,
         log: LogFn,
+        log_file: Path,
         set_step: Callable[[str, int | None], None],
-        dry_run: bool,
     ) -> None:
-        if (self.repo_root / "config").is_dir() and (
-            self.repo_root / "scripts"
-        ).is_dir():
-            return
-
-        home_repo = Path.home() / DOTFILES_REPO_DIRNAME
-        if (home_repo / "config").is_dir() and (home_repo / "scripts").is_dir():
-            self.repo_root = home_repo
-            log(f"[NOTE] Using dotfiles repo at {self.repo_root}")
-            return
-
-        if dry_run:
-            raise RuntimeError(
-                "Hyprland-Dots sources are not available for dry-run. "
-                "Use 'Download Repo' first or clone Hyprland-Dots to ~/Hyprland-Dots."
-            )
-
-        if not which("git"):
-            raise RuntimeError(
-                "Hyprland-Dots sources are missing and git is unavailable. "
-                "Use 'Download Repo' first or clone Hyprland-Dots to ~/Hyprland-Dots."
-            )
-
-        if home_repo.exists() and not home_repo.is_dir():
-            raise RuntimeError(
-                f"Cannot bootstrap Hyprland-Dots: non-directory path exists at {home_repo}"
-            )
-
-        set_step("Bootstrapping Hyprland-Dots source...", 8)
-        log(
-            "[INFO] Hyprland-Dots source not found. Attempting to clone into "
-            f"{home_repo}"
+        """Delegate to repo_ops_mod.update_repo."""
+        await repo_ops_mod.update_repo(
+            repo_root=self.repo_root,
+            log=log,
+            log_file=log_file,
+            set_step=set_step,
         )
 
-        if not home_repo.exists():
-            clean_env = os.environ.copy()
-            clean_env.pop("LD_LIBRARY_PATH", None)
-            clone = await run_cmd(
-                ["git", "clone", "--depth", "1", DOTFILES_REPO_URL, str(home_repo)],
-                log=log,
-                env=clean_env,
-            )
-            if clone.returncode != 0:
-                raise RuntimeError(
-                    "Failed to fetch Hyprland-Dots source automatically. "
-                    "Use 'Download Repo' from the menu and retry install."
-                )
-
-        if not (home_repo / "config").is_dir() or not (home_repo / "scripts").is_dir():
-            raise RuntimeError(
-                f"Hyprland-Dots source is incomplete at {home_repo}; expected config/ and scripts/."
-            )
-
-        self.repo_root = home_repo
-        log(f"[OK] Hyprland-Dots source ready at {self.repo_root}")
+    async def download_repo(
+        self,
+        *,
+        log: LogFn,
+        log_file: Path,
+        set_step: Callable[[str, int | None], None],
+    ) -> None:
+        """Delegate to repo_ops_mod.download_repo."""
+        await repo_ops_mod.download_repo(
+            log=log,
+            log_file=log_file,
+            set_step=set_step,
+        )
 
     def _copy_logs_dir(self, *, sandbox_root: Path | None = None) -> Path:
         if sandbox_root is not None:
@@ -332,158 +274,6 @@ class InstallerOrchestrator:
             log(f"[NOTE] Skipped (auth failed): {description}")
         return False
 
-    async def update_repo(
-        self,
-        *,
-        log: LogFn,
-        log_file: Path,
-        set_step: Callable[[str, int | None], None],
-    ) -> None:
-        self._assert_repo_root()
-        expected_names = {"Hyprland-Dots", "hyprland-dots"}
-        if self.repo_root.name not in expected_names:
-            raise RuntimeError(
-                "This helper must be run from Hyprland-Dots or hyprland-dots directory. "
-                f"Current: {self.repo_root}"
-            )
-        set_step("Starting repository update...", 5)
-        log("[INFO] Starting repository update...")
-
-        set_step("Checking git repo...", 10)
-        if not which("git"):
-            raise RuntimeError("git not found")
-
-        head_before_res = await run_cmd(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=self.repo_root,
-            log=log,
-        )
-        head_before = (
-            head_before_res.output.strip()
-            if head_before_res.returncode == 0
-            else "unknown"
-        )
-
-        set_step("Checking working tree...", 15)
-        log("[INFO] Checking working tree...")
-        diff1 = await run_cmd(["git", "diff", "--quiet"], cwd=self.repo_root, log=log)
-        diff2 = await run_cmd(
-            ["git", "diff", "--cached", "--quiet"], cwd=self.repo_root, log=log
-        )
-
-        stash_msg = "No local changes; no stash created."
-        if diff1.returncode == 0 and diff2.returncode == 0:
-            log(f"[NOTE] {stash_msg}")
-        else:
-            set_step("Stashing local changes...", 25)
-            log("[INFO] Stashing local changes (tracked + untracked)...")
-            stash_res = await run_cmd(
-                ["git", "stash", "push", "-u"], cwd=self.repo_root, log=log
-            )
-            if stash_res.returncode != 0:
-                raise RuntimeError("git stash failed")
-            first = (stash_res.output.splitlines() or [""])[0]
-            stash_msg = f"Created stash: {first}" if first else "Created stash."
-            log(f"[OK] {stash_msg}")
-
-        set_step("Pulling latest changes...", 60)
-        log("[INFO] Pulling latest changes...")
-        res = await run_cmd(["git", "pull", "--ff-only"], cwd=self.repo_root, log=log)
-        pull_status = res.returncode
-        if pull_status == 0:
-            log("[OK] Repository updated successfully.")
-        else:
-            log(f"[ERROR] git pull failed (exit {pull_status}).")
-
-        head_after_res = await run_cmd(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=self.repo_root,
-            log=log,
-        )
-        head_after = (
-            head_after_res.output.strip()
-            if head_after_res.returncode == 0
-            else "unknown"
-        )
-
-        log("----------------------------------------")
-        log("Summary:")
-        log(f"  Repo        : {self.repo_root}")
-        log(f"  Log file    : {log_file}")
-        log(f"  HEAD before : {head_before}")
-        log(f"  HEAD after  : {head_after}")
-        log(f"  Stash       : {stash_msg}")
-        log(f"  Pull status : {'success' if pull_status == 0 else 'failure'}")
-        log("----------------------------------------")
-
-        if pull_status != 0:
-            raise RuntimeError(f"git pull failed (exit {pull_status})")
-
-        installed_version = get_installed_dotfiles_version()
-        if installed_version:
-            log(
-                f"[INFO] Checking for duplicate UserConfigs entries after repo update (detected v{installed_version})..."
-            )
-            cleanup_duplicate_userconfigs(installed_version, log)
-        else:
-            log(
-                "[NOTE] Skipping UserConfigs duplicate cleanup; installed version could not be detected."
-            )
-
-        set_step("Update complete.", 100)
-
-    async def download_repo(
-        self,
-        *,
-        log: LogFn,
-        log_file: Path,
-        set_step: Callable[[str, int | None], None],
-    ) -> None:
-        set_step("Starting repository download...", 5)
-        log("[INFO] Starting repository download...")
-
-        set_step("Checking git availability...", 15)
-        if not which("git"):
-            raise RuntimeError("git not found")
-
-        target = Path.home() / DOTFILES_REPO_DIRNAME
-
-        set_step("Checking destination...", 25)
-        if target.exists():
-            raise RuntimeError(
-                f"Destination already exists: {target}. "
-                "Use Update Repo or remove the directory first."
-            )
-
-        set_step("Cloning Hyprland-Dots...", 55)
-        clean_env = os.environ.copy()
-        clean_env.pop("LD_LIBRARY_PATH", None)
-        clone_res = await run_cmd(
-            ["git", "clone", "--depth", "1", DOTFILES_REPO_URL, str(target)],
-            log=log,
-            env=clean_env,
-        )
-        if clone_res.returncode != 0:
-            raise RuntimeError(f"git clone failed (exit {clone_res.returncode})")
-
-        set_step("Verifying clone...", 85)
-        head_res = await run_cmd(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=target,
-            log=log,
-        )
-        head = head_res.output.strip() if head_res.returncode == 0 else "unknown"
-
-        log("----------------------------------------")
-        log("Summary:")
-        log(f"  Repo URL   : {DOTFILES_REPO_URL}")
-        log(f"  Target dir : {target}")
-        log(f"  Log file   : {log_file}")
-        log(f"  HEAD       : {head}")
-        log("----------------------------------------")
-
-        set_step("Download complete.", 100)
-
     async def _pre_authenticate_sudo(
         self,
         *,
@@ -547,7 +337,8 @@ class InstallerOrchestrator:
                 "This script should NOT be executed as root!! Exiting......."
             )
 
-        await self._ensure_repo_root_for_install(
+        self.repo_root = await repo_ops_mod.ensure_repo_root_for_install(
+            repo_root=self.repo_root,
             log=log,
             set_step=set_step,
             dry_run=config.dry_run,
@@ -617,25 +408,28 @@ class InstallerOrchestrator:
                 is_nixos = detect_nixos()
                 if is_nvidia:
                     log("[INFO] Nvidia GPU detected; applying config tweaks")
-                    self._apply_nvidia_tweaks(staging_config)
+                    tweaks.apply_nvidia_tweaks(staging_config)
                 if is_vm:
                     log("[INFO] VM detected; applying config tweaks")
-                    self._apply_vm_tweaks(staging_config)
+                    tweaks.apply_vm_tweaks(staging_config)
                 if is_nixos:
                     log("[INFO] NixOS detected; applying config tweaks")
-                    self._apply_nixos_tweaks(staging_config)
+                    tweaks.apply_nixos_tweaks(staging_config)
 
                 if (real_home / ".icons/Bibata-Modern-Ice/hyprcursors").is_dir():
                     log(
                         "[INFO] Bibata-Hyprcursor directory detected. Activating Hyprcursor...."
                     )
-                    self._apply_hyprcursor_tweaks(staging_config)
+                    tweaks.apply_hyprcursor_tweaks(staging_config)
 
-                await self._handle_waybar_weather_binary(
+                await waybar_weather_mod.handle_waybar_weather_binary(
+                    repo_root=self.repo_root,
                     log=log,
                     is_nixos=is_nixos,
                     distro_id=distro_id,
-                    prompt_password=prompt_password,
+                    run_sudo_cmd=lambda argv, **kw: self._run_sudo_cmd(
+                        argv, log=log, prompt_password=prompt_password, **kw
+                    ),
                     dry_run=config.dry_run,
                 )
 
@@ -700,7 +494,7 @@ class InstallerOrchestrator:
                     )
 
                 set_step("Applying user configuration...", 30)
-                self._apply_user_choices(config, staging_config, log)
+                user_config_mod.apply_user_choices(config, staging_config, log)
 
                 set_step("Copying configs (phase 1)...", 45)
                 for name in PHASE1_CONFIGS:
@@ -759,15 +553,16 @@ class InstallerOrchestrator:
                     if name == "hypr" and backup is not None:
                         hypr_backup = backup
 
-                weather_config_copied = self._handle_waybar_weather_config(
+                weather_config_copied = waybar_weather_mod.handle_waybar_weather_config(
                     run_mode=config.run_mode,
                     staging_config_root=staging_config,
                     target_config_root=target_config_root,
                     log=log,
                 )
 
-                self._handle_waybar_weather_units(
-                    config=config,
+                waybar_weather_mod.handle_waybar_weather_units(
+                    run_mode=config.run_mode,
+                    weather_units=config.weather_units,
                     weather_config_copied=weather_config_copied,
                     target_config_root=target_config_root,
                     log=log,
@@ -807,7 +602,7 @@ class InstallerOrchestrator:
 
                 # Optional post-copy app configs (AGS / Quickshell).
                 set_step("Installing optional app configs...", 80)
-                self._install_optional_app_configs(
+                optional_apps_mod.install_optional_app_configs(
                     config,
                     staging_config_root=staging_config,
                     target_config_root=target_config_root,
@@ -867,7 +662,7 @@ class InstallerOrchestrator:
                         )
 
                 set_step("Installing wallpapers...", 85)
-                await self._install_wallpapers(
+                await wallpaper_mod.install_wallpapers(
                     config,
                     staging_wallpapers,
                     log,
@@ -894,254 +689,6 @@ class InstallerOrchestrator:
                 log("[DRY-RUN] Sandbox cleaned up")
 
         set_step("Complete.", 100)
-
-    async def _handle_waybar_weather_binary(
-        self,
-        *,
-        log: LogFn,
-        is_nixos: bool,
-        distro_id: str | None,
-        prompt_password: PromptPasswordFn | None,
-        dry_run: bool,
-    ) -> None:
-        if dry_run:
-            log("[DRY-RUN] Skipped: waybar-weather binary install")
-            return
-
-        if which("waybar-weather"):
-            log("[OK] waybar-weather binary detected.")
-            return
-
-        if is_nixos:
-            log("[WARN] waybar-weather binary is missing.")
-            log(
-                "[NOTE] Install the current NixOS-Hyprland version to install "
-                "waybar-weather applet for Waybar"
-            )
-            return
-
-        log("[INFO] waybar-weather binary not found; attempting best-effort install")
-        try:
-            installed = await self._attempt_waybar_weather_install(
-                distro_id=distro_id,
-                log=log,
-                prompt_password=prompt_password,
-            )
-        except Exception as exc:
-            log(f"[WARN] waybar-weather install failed ({exc}); continuing")
-            return
-
-        if installed:
-            log("[OK] waybar-weather install step completed")
-        else:
-            log("[WARN] waybar-weather install was not completed; continuing")
-
-    async def _attempt_waybar_weather_install(
-        self,
-        *,
-        distro_id: str | None,
-        log: LogFn,
-        prompt_password: PromptPasswordFn | None,
-    ) -> bool:
-        if distro_id == "arch" and which("yay"):
-            res = await run_cmd(["yay", "-S", "--noconfirm", "waybar-weather"], log=log)
-            if res.returncode == 0:
-                return True
-            log("[WARN] AUR install failed; falling back to bundled asset")
-
-        asset_path = self.repo_root / "assets" / "waybar-weather.gz"
-        if not asset_path.is_file():
-            return False
-
-        with tempfile.NamedTemporaryFile(prefix="waybar-weather-", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-
-        try:
-            with gzip.open(asset_path, "rb") as src, tmp_path.open("wb") as dst:
-                shutil.copyfileobj(src, dst)
-            tmp_path.chmod(0o755)
-
-            ok = await self._run_sudo_cmd(
-                ["install", "-m", "0755", str(tmp_path), "/usr/bin/waybar-weather"],
-                log=log,
-                prompt_password=prompt_password,
-                description="install waybar-weather binary",
-            )
-            return ok
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-    def _handle_waybar_weather_config(
-        self,
-        *,
-        run_mode: str,
-        staging_config_root: Path,
-        target_config_root: Path,
-        log: LogFn,
-    ) -> bool:
-        src = staging_config_root / WAYBAR_WEATHER_DIRNAME
-        dst = target_config_root / WAYBAR_WEATHER_DIRNAME
-
-        if run_mode == "install":
-            if not src.is_dir():
-                log(f"[WARN] - waybar-weather config not found at {src}")
-                return False
-
-            log("[INFO] - Copying waybar-weather config (fresh copy)")
-            self._copy_waybar_weather_dir(src=src, dst=dst, replace=True)
-            return True
-
-        if run_mode in {"upgrade", "express"}:
-            if dst.exists():
-                log("[INFO] - waybar-weather config exists; skipping copy")
-                return False
-
-            if not src.is_dir():
-                log(f"[WARN] - waybar-weather config not found at {src}")
-                return False
-
-            log("[INFO] - Copying waybar-weather config")
-            self._copy_waybar_weather_dir(src=src, dst=dst, replace=False)
-            return True
-
-        return False
-
-    def _copy_waybar_weather_dir(self, *, src: Path, dst: Path, replace: bool) -> None:
-        assert_safe_path(dst)
-        if replace and (dst.exists() or dst.is_symlink()):
-            if dst.is_symlink() or dst.is_file():
-                dst.unlink(missing_ok=True)
-            else:
-                shutil.rmtree(dst)
-
-        if not dst.exists():
-            dst.mkdir(parents=True, exist_ok=True)
-
-        shutil.copytree(src, dst, dirs_exist_ok=True, symlinks=True)
-
-    def _handle_waybar_weather_units(
-        self,
-        *,
-        config: InstallConfig,
-        weather_config_copied: bool,
-        target_config_root: Path,
-        log: LogFn,
-    ) -> None:
-        eligible = config.run_mode != "express" and weather_config_copied
-
-        if not eligible:
-            return
-
-        weather_cfg = target_config_root / WAYBAR_WEATHER_DIRNAME / "config.toml"
-        if config.weather_units == "F":
-            self._apply_waybar_weather_imperial(weather_cfg, log)
-
-    def _apply_waybar_weather_imperial(self, weather_cfg: Path, log: LogFn) -> None:
-        if not weather_cfg.is_file():
-            log(f"[WARN] - waybar-weather config not found at {weather_cfg}")
-            return
-
-        lines = weather_cfg.read_text(encoding="utf-8", errors="replace").splitlines(
-            True
-        )
-        out: list[str] = []
-        replaced = False
-        units_pat = re.compile(r"^\s*(?:#\s*)?units\s*=")
-
-        for line in lines:
-            if units_pat.match(line):
-                if not replaced:
-                    out.append('units = "imperial"\n')
-                    replaced = True
-                continue
-            out.append(line)
-
-        if not replaced:
-            if out and not out[-1].endswith("\n"):
-                out[-1] = out[-1] + "\n"
-            out.append('units = "imperial"\n')
-
-        weather_cfg.write_text("".join(out), encoding="utf-8")
-        log("[OK] - Set waybar-weather units to imperial")
-
-    def _apply_nvidia_tweaks(self, staging_config: Path) -> None:
-        env_file = staging_config / HYPR_ENV_VARS
-        sys_file = staging_config / HYPR_SYSTEM_SETTINGS
-        if env_file.is_file():
-            text = env_file.read_text(encoding="utf-8", errors="replace").splitlines(
-                True
-            )
-            rules = [
-                "env = LIBVA_DRIVER_NAME,nvidia",
-                "env = __GLX_VENDOR_LIBRARY_NAME,nvidia",
-                "env = NVD_BACKEND,direct",
-                "env = GSK_RENDERER,ngl",
-            ]
-            out: list[str] = []
-            for line in text:
-                stripped = line.lstrip("#")
-                if any(r in stripped for r in rules):
-                    out.append(stripped)
-                else:
-                    out.append(line)
-            env_file.write_text("".join(out), encoding="utf-8")
-
-        if sys_file.is_file():
-            txt = sys_file.read_text(encoding="utf-8", errors="replace")
-            txt = txt.replace("no_hardware_cursors = 2", "no_hardware_cursors = 1")
-            sys_file.write_text(txt, encoding="utf-8")
-
-    def _apply_vm_tweaks(self, staging_config: Path) -> None:
-        env_file = staging_config / HYPR_ENV_VARS
-        sys_file = staging_config / HYPR_SYSTEM_SETTINGS
-        mon_file = staging_config / HYPR_MONITORS
-        if sys_file.is_file():
-            txt = sys_file.read_text(encoding="utf-8", errors="replace")
-            txt = txt.replace("no_hardware_cursors = 2", "no_hardware_cursors = 1")
-            sys_file.write_text(txt, encoding="utf-8")
-
-        if env_file.is_file():
-            txt = env_file.read_text(encoding="utf-8", errors="replace")
-            txt = txt.replace(
-                "#env = WLR_RENDERER_ALLOW_SOFTWARE,1",
-                "env = WLR_RENDERER_ALLOW_SOFTWARE,1",
-            )
-            env_file.write_text(txt, encoding="utf-8")
-
-        if mon_file.is_file():
-            txt = mon_file.read_text(encoding="utf-8", errors="replace")
-            txt = txt.replace(
-                "#monitor = Virtual-1, 1920x1080@60,auto,1",
-                "monitor = Virtual-1, 1920x1080@60,auto,1",
-            )
-            mon_file.write_text(txt, encoding="utf-8")
-
-    def _apply_nixos_tweaks(self, staging_config: Path) -> None:
-        overlay = staging_config / HYPR_STARTUP_APPS
-        disable = staging_config / HYPR_STARTUP_DISABLE
-        overlay.parent.mkdir(parents=True, exist_ok=True)
-        overlay.touch(exist_ok=True)
-        disable.touch(exist_ok=True)
-
-        line = "exec-once = $scriptsDir/Polkit-NixOS.sh\n"
-        if line not in overlay.read_text(encoding="utf-8", errors="replace"):
-            overlay.open("a", encoding="utf-8").write(line)
-
-        dline = "$scriptsDir/Polkit.sh\n"
-        if dline not in disable.read_text(encoding="utf-8", errors="replace"):
-            disable.open("a", encoding="utf-8").write(dline)
-
-    def _apply_hyprcursor_tweaks(self, staging_config: Path) -> None:
-        env_file = staging_config / HYPR_ENV_VARS
-        if not env_file.is_file():
-            return
-        txt = env_file.read_text(encoding="utf-8", errors="replace")
-        txt = txt.replace(
-            "#env = HYPRCURSOR_THEME,Bibata-Modern-Ice",
-            "env = HYPRCURSOR_THEME,Bibata-Modern-Ice",
-        )
-        txt = txt.replace("#env = HYPRCURSOR_SIZE,24", "env = HYPRCURSOR_SIZE,24")
-        env_file.write_text(txt, encoding="utf-8")
 
     def _enforce_symlink_target(
         self,
@@ -1195,606 +742,6 @@ class InstallerOrchestrator:
                 f"[WARN] Failed to enforce Waybar {label} symlink at {link_path}: {exc}"
             )
 
-    def _apply_user_choices(
-        self, cfg: InstallConfig, staging_config: Path, log: LogFn
-    ) -> None:
-        sys_settings = staging_config / HYPR_SYSTEM_SETTINGS
-        if sys_settings.is_file():
-            replace_kb_layout(sys_settings, cfg.keyboard_layout)
-            log(f"[NOTE] kb_layout {cfg.keyboard_layout} configured in settings.")
-
-        if cfg.default_editor:
-            defaults = staging_config / HYPR_USER_DEFAULTS
-            if defaults.is_file():
-                lines = defaults.read_text(
-                    encoding="utf-8", errors="replace"
-                ).splitlines(True)
-                defaults_out: list[str] = []
-                replaced = False
-                for line in lines:
-                    if re.match(r"^\s*#?\s*env\s*=\s*EDITOR,", line):
-                        defaults_out.append(
-                            f"env = EDITOR,{cfg.default_editor} #default editor\n"
-                        )
-                        replaced = True
-                    else:
-                        defaults_out.append(line)
-                if not replaced:
-                    defaults_out.insert(
-                        0, f"env = EDITOR,{cfg.default_editor} #default editor\n"
-                    )
-                defaults.write_text("".join(defaults_out), encoding="utf-8")
-                log(f"[OK] Default editor set to {cfg.default_editor}.")
-            else:
-                log(
-                    "[WARN] Default editor template not found; skipping editor configuration"
-                )
-
-        if cfg.resolution == "lt_1440p":
-            kitty_conf = staging_config / "kitty" / "kitty.conf"
-            if kitty_conf.is_file():
-                txt = kitty_conf.read_text(encoding="utf-8", errors="replace")
-                txt = txt.replace("font_size 16.0", "font_size 14.0")
-                kitty_conf.write_text(txt, encoding="utf-8")
-
-            rofi_fonts = staging_config / "rofi" / "0-shared-fonts.rasi"
-            if rofi_fonts.is_file():
-                txt = rofi_fonts.read_text(encoding="utf-8", errors="replace")
-                txt = txt.replace(
-                    'font: "JetBrainsMono Nerd Font SemiBold 13";',
-                    'font: "JetBrainsMono Nerd Font SemiBold 11";',
-                )
-                txt = txt.replace(
-                    'font: "JetBrainsMono Nerd Font SemiBold 15";',
-                    'font: "JetBrainsMono Nerd Font SemiBold 13";',
-                )
-                rofi_fonts.write_text(txt, encoding="utf-8")
-
-            hypr_dir = staging_config / "hypr"
-            hyprlock = hypr_dir / "hyprlock.conf"
-            hyprlock_2k = hypr_dir / "hyprlock-2k.conf"
-            hyprlock_1080 = hypr_dir / "hyprlock-1080p.conf"
-            if hyprlock.exists():
-                hyprlock.rename(hyprlock_2k)
-            if hyprlock_1080.exists():
-                hyprlock_1080.rename(hyprlock)
-
-        if not cfg.clock_24h:
-            modules = staging_config / "waybar" / "Modules"
-            if modules.is_file():
-                lines = modules.read_text(
-                    encoding="utf-8", errors="replace"
-                ).splitlines(True)
-
-                def uncomment(line: str) -> str:
-                    return re.sub(r"^(\s*)//\s*", r"\1", line)
-
-                def comment(line: str) -> str:
-                    if re.match(r"^\s*//", line):
-                        return line
-                    return re.sub(r"^(\s*)", r"\1//", line)
-
-                enable_12h = [
-                    "{:%I:%M %p}",
-                    "{:%I:%M %p - %d/%b}",
-                    "{:%B | %a %d, %Y | %I:%M %p}",
-                    "{:%A, %I:%M %P}",
-                ]
-                disable_24h = [
-                    "{:%H:%M:%S}",
-                    "{:%H:%M}",
-                    "{:%H:%M - %d/%b}",
-                    "{:%B | %a %d, %Y | %H:%M}",
-                    "{:%a %d | %H:%M}",
-                ]
-
-                modules_out: list[str] = []
-                for line in lines:
-                    if any(pat in line for pat in enable_12h):
-                        modules_out.append(uncomment(line))
-                    elif any(pat in line for pat in disable_24h):
-                        modules_out.append(comment(line))
-                    else:
-                        modules_out.append(line)
-
-                modules.write_text("".join(modules_out), encoding="utf-8")
-
-            hypr_dir = staging_config / "hypr"
-            hyprlock_file = hypr_dir / "hyprlock.conf"
-            if (
-                not hyprlock_file.is_file()
-                and (hypr_dir / "hyprlock-1080p.conf").is_file()
-            ):
-                hyprlock_file = hypr_dir / "hyprlock-1080p.conf"
-            if hyprlock_file.is_file():
-                txt = hyprlock_file.read_text(encoding="utf-8", errors="replace")
-                lines = txt.splitlines(True)
-
-                def ensure_commented(line: str) -> str:
-                    stripped = line.lstrip()
-                    indent = line[: len(line) - len(stripped)]
-                    if stripped.startswith("#"):
-                        return line
-                    return indent + "# " + stripped
-
-                def ensure_uncommented(line: str) -> str:
-                    stripped = line.lstrip()
-                    indent = line[: len(line) - len(stripped)]
-                    if not stripped.startswith("#"):
-                        return line
-                    stripped = re.sub(r"^#+\s*", "", stripped)
-                    return indent + stripped
-
-                out: list[str] = []
-                for line in lines:
-                    raw = line.lstrip()
-                    candidate = re.sub(r"^#+\s*", "", raw)
-                    if (
-                        "text = cmd[update:1000]" in candidate
-                        and 'date +"%H' in candidate
-                    ):
-                        out.append(ensure_commented(line))
-                    elif (
-                        "text = cmd[update:1000]" in candidate
-                        and 'date +"%I' in candidate
-                        and "%p" in candidate
-                    ):
-                        out.append(ensure_uncommented(line))
-                    elif (
-                        "text = cmd[update:1000]" in candidate
-                        and 'date +"%S' in candidate
-                        and "%p" not in candidate
-                    ):
-                        out.append(ensure_commented(line))
-                    elif (
-                        "text = cmd[update:1000]" in candidate
-                        and 'date +"%S %p' in candidate
-                    ):
-                        out.append(ensure_uncommented(line))
-                    else:
-                        out.append(line)
-
-                txt = "".join(out)
-                hyprlock_file.write_text(txt, encoding="utf-8")
-
-        overlay = staging_config / "hypr" / "configs" / "Startup_Apps.conf"
-        overlay.parent.mkdir(parents=True, exist_ok=True)
-        overlay.touch(exist_ok=True)
-        existing = overlay.read_text(encoding="utf-8", errors="replace")
-
-        def add(line: str) -> None:
-            nonlocal existing
-            if line not in existing:
-                overlay.open("a", encoding="utf-8").write(line)
-                existing += line
-
-        if cfg.enable_asus and which("asusctl"):
-            add("exec-once = rog-control-center\n")
-
-        if cfg.enable_blueman and which("blueman-applet"):
-            add("exec-once = blueman-applet\n")
-
-        if cfg.enable_ags and which("ags"):
-            add("exec-once = ags\n")
-            # Also uncomment ags lines in Refresh scripts
-            for script in ["RefreshNoWaybar.sh", "Refresh.sh"]:
-                script_path = staging_config / "hypr" / "scripts" / script
-                if script_path.exists():
-                    txt = script_path.read_text(encoding="utf-8", errors="replace")
-                    txt = re.sub(r"#ags -q && ags &", "ags -q && ags &", txt)
-                    script_path.write_text(txt, encoding="utf-8")
-
-        if cfg.enable_quickshell and which("qs"):
-            add("exec-once = qs\n")
-            # Also uncomment quickshell lines in Refresh scripts
-            for script in ["RefreshNoWaybar.sh", "Refresh.sh"]:
-                script_path = staging_config / "hypr" / "scripts" / script
-                if script_path.exists():
-                    txt = script_path.read_text(encoding="utf-8", errors="replace")
-                    txt = re.sub(r"#pkill qs && qs &", "pkill qs && qs &", txt)
-                    script_path.write_text(txt, encoding="utf-8")
-
-        add("exec-once = $scriptsDir/KeybindsLayoutInit.sh\n")
-
-    async def _install_wallpapers(
-        self,
-        cfg: InstallConfig,
-        staging_wallpapers: Path,
-        log: LogFn,
-        *,
-        home_override: Path | None = None,
-    ) -> None:
-        pictures_dir = await self._detect_pictures_dir(log, home_override=home_override)
-        target = pictures_dir / "wallpapers"
-        assert_safe_path(target)
-        target.mkdir(parents=True, exist_ok=True)
-
-        if staging_wallpapers.is_dir():
-            for item in staging_wallpapers.iterdir():
-                dst = target / item.name
-                if item.is_dir():
-                    if dst.exists():
-                        assert_safe_path(dst)
-                        shutil.rmtree(dst)
-                    shutil.copytree(item, dst, symlinks=True)
-                else:
-                    shutil.copy2(item, dst)
-            log("[OK] Wallpapers copied.")
-
-        if cfg.run_mode == "express":
-            if cfg.download_wallpapers:
-                log("[NOTE] Express mode: skipping additional wallpapers download.")
-            return
-
-        if cfg.download_wallpapers:
-            log(
-                "[NOTE] Disclaimer: additional wallpapers are AI generated and may contain artifacts."
-            )
-            log("[NOTE] Download size is ~1GB.")
-            if not which("git"):
-                log("[WARN] git not found; cannot download Wallpaper-Bank")
-                return
-
-            with tempfile.TemporaryDirectory(prefix="hyprdots-walls-") as td:
-                tmp = Path(td)
-                res = await run_cmd(
-                    [
-                        "git",
-                        "clone",
-                        "https://github.com/LinuxBeginnings/Wallpaper-Bank.git",
-                    ],
-                    cwd=tmp,
-                    log=log,
-                )
-                if res.returncode != 0:
-                    log("[ERROR] Wallpaper-Bank clone failed")
-                    return
-
-                bank = tmp / "Wallpaper-Bank" / "wallpapers"
-                if bank.is_dir():
-                    for item in bank.iterdir():
-                        dst = target / item.name
-                        if item.is_dir():
-                            if dst.exists():
-                                assert_safe_path(dst)
-                                shutil.rmtree(dst)
-                            shutil.copytree(item, dst, symlinks=True)
-                        else:
-                            shutil.copy2(item, dst)
-                    log("[OK] Additional wallpapers copied.")
-
-    async def _detect_pictures_dir(
-        self, log: LogFn, *, home_override: Path | None = None
-    ) -> Path:
-        if home_override is not None:
-            return home_override / "Pictures"
-        if which("xdg-user-dir"):
-            res = await run_cmd(["xdg-user-dir", "PICTURES"], log=log)
-            if res.returncode == 0:
-                raw = (res.output or "").strip().splitlines()[-1].strip()
-                if raw:
-                    p = Path(raw).expanduser()
-                    if p.is_absolute():
-                        return p
-
-        return Path(os.environ.get("XDG_PICTURES_DIR", str(Path.home() / "Pictures")))
-
-    def _install_optional_app_configs(
-        self,
-        cfg: InstallConfig,
-        *,
-        staging_config_root: Path,
-        target_config_root: Path,
-        log: LogFn,
-        prompt_confirm: Callable[[str, str, str, bool], bool] | None,
-    ) -> None:
-        def copytree(src: Path, dst: Path) -> None:
-            assert_safe_path(dst)
-            if dst.exists() and not dst.is_symlink():
-                shutil.rmtree(dst)
-            elif dst.is_symlink():
-                dst.unlink(missing_ok=True)
-            shutil.copytree(src, dst, symlinks=True)
-
-        # AGS config copy/overwrite.
-        if cfg.enable_ags and which("ags"):
-            src = staging_config_root / "ags"
-            dst = target_config_root / "ags"
-            if not src.is_dir():
-                log("[ERROR] Missing source config/ags; skipping.")
-            elif not dst.exists():
-                copytree(src, dst)
-                log("[OK] - Installed ags config")
-            else:
-                msg = "Do you want to overwrite your existing ags config?"
-                ok = False
-                if prompt_confirm is not None:
-                    ok = prompt_confirm(msg, "Overwrite", "Skip", False)
-                if ok:
-                    backup = copy_config_dir(
-                        name="ags",
-                        staging_config_root=staging_config_root,
-                        target_config_root=target_config_root,
-                    )
-                    if backup is None:
-                        if not dst.is_dir():
-                            raise RuntimeError("Failed to install ags config")
-                    log("[OK] - Overwrote ags config")
-                else:
-                    log("[NOTE] - Skipped overwriting ags config")
-
-        # Quickshell config copy/overwrite + overview fixups.
-        if cfg.enable_quickshell and which("qs"):
-            src = staging_config_root / "quickshell"
-            dst = target_config_root / "quickshell"
-            if not src.is_dir():
-                log("[ERROR] Missing source config/quickshell; skipping.")
-                return
-
-            if dst.exists() and (dst / "shell.qml").exists():
-                (dst / "shell.qml").unlink(missing_ok=True)
-                log("[NOTE] Removed legacy quickshell shell.qml")
-
-            if not dst.exists():
-                copytree(src, dst)
-                (dst / "shell.qml").unlink(missing_ok=True)
-                log("[OK] - Installed quickshell config")
-            else:
-                msg = "Do you want to overwrite your existing quickshell config?"
-                ok = False
-                if prompt_confirm is not None:
-                    ok = prompt_confirm(msg, "Overwrite", "Skip", True)
-                if ok:
-                    # Backup existing then replace.
-                    backup = copy_config_dir(
-                        name="quickshell",
-                        staging_config_root=staging_config_root,
-                        target_config_root=target_config_root,
-                    )
-                    _ = backup
-                    (dst / "shell.qml").unlink(missing_ok=True)
-                    if not dst.is_dir():
-                        raise RuntimeError("Failed to install quickshell config")
-                    log("[OK] - Overwrote quickshell config")
-                else:
-                    log("[NOTE] - Skipped overwriting quickshell config")
-
-            # Ensure overview exists.
-            overview_dst = dst / "overview"
-            overview_src = src / "overview"
-            if not overview_dst.exists() and overview_src.is_dir():
-                try:
-                    copytree(overview_src, overview_dst)
-                    log("[OK] - Installed quickshell overview")
-                except Exception:
-                    pass
-
-            # Rewrite legacy qs startup lines.
-            startup = target_config_root / "hypr" / "configs" / "Startup_Apps.conf"
-            if startup.is_file():
-                txt = startup.read_text(encoding="utf-8", errors="replace").splitlines(
-                    True
-                )
-                out: list[str] = []
-                changed = False
-                for line in txt:
-                    if re.match(r"^\s*exec-once\s*=\s*qs(?:\s*&)?\s*$", line.strip()):
-                        out.append(
-                            "exec-once = qs -c overview  # Quickshell Overview\n"
-                        )
-                        changed = True
-                    else:
-                        out.append(line)
-                if changed:
-                    startup.write_text("".join(out), encoding="utf-8")
-                    log("[OK] - Updated Startup_Apps for Quickshell Overview")
-
-    async def _systemctl_daemon_reload(
-        self,
-        *,
-        log: LogFn,
-        dry_run: bool,
-    ) -> bool:
-        """Reload systemd user daemon to pick up new/modified service files."""
-        if dry_run:
-            log("[DRY-RUN] Would run: systemctl --user daemon-reload")
-            return True
-
-        result = await run_cmd(
-            ["systemctl", "--user", "daemon-reload"],
-            log=log,
-        )
-        return result.returncode == 0
-
-    async def _check_service_exists(
-        self,
-        service_name: str,
-        *,
-        log: LogFn,
-        dry_run: bool,
-    ) -> bool:
-        """Check if a systemd user service unit file is available."""
-        if dry_run:
-            log(f"[DRY-RUN] Would check if {service_name}.service exists")
-            return False
-
-        result = await run_cmd(
-            ["systemctl", "--user", "list-unit-files"],
-            log=None,
-        )
-
-        if result.returncode != 0:
-            return False
-
-        # Match pattern: ^hyprpolkitagent\.service\s+
-        pattern = re.compile(rf"^{re.escape(service_name)}\.service\s+", re.MULTILINE)
-        return bool(pattern.search(result.output))
-
-    async def _check_process_conflict(
-        self,
-        patterns: list[str],
-        *,
-        log: LogFn,
-        dry_run: bool,
-    ) -> bool:
-        """Check if any conflicting processes are running."""
-        if dry_run:
-            log(f"[DRY-RUN] Would check for conflicting processes: {patterns}")
-            return False
-
-        if not which("pgrep"):
-            log("[NOTE] pgrep not found; skipping conflict check")
-            return False
-
-        uid = os.getuid()
-        # Build alternation pattern: xfce-polkit|polkit-gnome-...|hyprpolkitagent
-        combined_pattern = "|".join(patterns)
-
-        result = await run_cmd(
-            ["pgrep", "-u", str(uid), "-f", combined_pattern],
-            log=None,
-        )
-
-        # pgrep returns 0 if match found, 1 if no match, >1 if error
-        if result.returncode == 0:
-            log(f"[NOTE] Found running process matching: {patterns}")
-            return True
-
-        return False
-
-    async def _systemctl_enable_start(
-        self,
-        service_name: str,
-        *,
-        log: LogFn,
-        dry_run: bool,
-    ) -> tuple[bool, bool]:
-        """Enable and start a systemd user service."""
-        if dry_run:
-            log(f"[DRY-RUN] Would run: systemctl --user enable {service_name}")
-            log(f"[DRY-RUN] Would run: systemctl --user start {service_name}")
-            return (True, True)
-
-        # Enable
-        enable_result = await run_cmd(
-            ["systemctl", "--user", "enable", service_name],
-            log=log,
-        )
-        enable_ok = enable_result.returncode == 0
-
-        # Start (run regardless of enable result)
-        start_result = await run_cmd(
-            ["systemctl", "--user", "start", service_name],
-            log=log,
-        )
-        start_ok = start_result.returncode == 0
-
-        return (enable_ok, start_ok)
-
-    async def _setup_systemd_services(
-        self,
-        *,
-        staging_root: Path,
-        target_config_root: Path,
-        log: LogFn,
-        dry_run: bool,
-    ) -> None:
-        """
-        Copy systemd user service overrides and enable/start services.
-
-        Implements feature parity with copy.sh lines 643-662:
-        - Copies config/systemd/ directory tree to ~/.config/systemd/
-        - Reloads systemd user daemon
-        - Enables and starts services listed in SYSTEMD_SERVICES (if no conflicts)
-
-        Args:
-            staging_root: Path to staged dotfiles (repo_root or sandbox staging area)
-            target_config_root: Target ~/.config directory (real or sandbox)
-            log: Logging function for user-visible messages
-            dry_run: If True, log operations without executing systemctl commands
-
-        Returns:
-            None (all errors are logged and gracefully handled)
-
-        Side Effects:
-            - Creates/modifies files under target_config_root/systemd/
-            - Calls systemctl --user daemon-reload (unless systemctl missing or dry_run)
-            - Calls systemctl --user enable/start <service> (conditionally)
-
-        Error Handling:
-            - Missing systemctl: logs NOTE, skips all systemd operations
-            - Service unit file missing: logs NOTE, skips enable/start for that service
-            - Conflicting process: logs NOTE, skips enable/start for that service
-            - systemctl command failure: logs WARN, continues (non-fatal)
-        """
-        # STEP 1: Copy systemd directory tree
-        systemd_src = staging_root / "config/systemd"
-        systemd_dest = target_config_root / "systemd"
-
-        if not systemd_src.exists():
-            log("[NOTE] No systemd directory in dotfiles; skipping service setup")
-            return
-
-        log("[INFO] Copying systemd service configurations...")
-        try:
-            systemd_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(systemd_src, systemd_dest, dirs_exist_ok=True)
-            log(f"[OK] Copied systemd configs to {systemd_dest}")
-        except Exception as e:
-            log(f"[WARN] Failed to copy systemd configs: {e}")
-            return  # Cannot proceed without service files
-
-        # STEP 2: Check systemctl availability
-        if not which("systemctl"):
-            log("[NOTE] systemctl not found; skipping systemd service installation")
-            return
-
-        # STEP 3: Daemon reload
-        log("[INFO] Reloading systemd user daemon...")
-        reload_ok = await self._systemctl_daemon_reload(log=log, dry_run=dry_run)
-        if not reload_ok:
-            log("[WARN] systemctl daemon-reload failed; services may not be recognized")
-            # Continue anyway (service files are copied; user can reload manually)
-
-        # STEP 4: Process each service
-        for service_name in SYSTEMD_SERVICES:
-            log(f"[INFO] Processing service: {service_name}")
-
-            # 4a. Check if service unit file exists
-            exists = await self._check_service_exists(
-                service_name, log=log, dry_run=dry_run
-            )
-            if not exists:
-                log(
-                    f"[NOTE] Service unit file '{service_name}.service' not found; skipping"
-                )
-                continue
-
-            # 4b. Check for conflicting processes
-            conflict_patterns = SYSTEMD_CONFLICT_PATTERNS.get(service_name, [])
-            if conflict_patterns:
-                has_conflict = await self._check_process_conflict(
-                    conflict_patterns, log=log, dry_run=dry_run
-                )
-                if has_conflict:
-                    log(
-                        f"[NOTE] Conflicting process already running for {service_name}; skipping enable/start"
-                    )
-                    continue
-
-            # 4c. Enable and start service
-            log(f"[INFO] Enabling and starting {service_name}...")
-            enable_ok, start_ok = await self._systemctl_enable_start(
-                service_name, log=log, dry_run=dry_run
-            )
-
-            if enable_ok and start_ok:
-                log(f"[OK] Service {service_name} enabled and started")
-            elif enable_ok:
-                log(f"[WARN] Service {service_name} enabled but failed to start")
-            else:
-                log(f"[WARN] Failed to enable service {service_name}")
-
     async def _finalize_post_copy(
         self,
         cfg: InstallConfig,
@@ -1829,7 +776,7 @@ class InstallerOrchestrator:
 
         # Setup systemd services
         if staging_root is not None:
-            await self._setup_systemd_services(
+            await systemd_services.setup_systemd_services(
                 staging_root=staging_root,
                 target_config_root=target_config_root,
                 log=log,
@@ -1921,7 +868,7 @@ class InstallerOrchestrator:
         wallpaper_current = wall_effects_dir / ".wallpaper_current"
         if not wallpaper_current.exists():
             default_filename = cfg.default_wallpaper
-            pictures_dir = await self._detect_pictures_dir(
+            pictures_dir = await wallpaper_mod.detect_pictures_dir(
                 log, home_override=sandbox_home
             )
             default_img = pictures_dir / "wallpapers" / default_filename

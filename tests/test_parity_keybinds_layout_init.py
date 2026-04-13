@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from dots_tui.logic.models import InstallConfig
-from dots_tui.logic.orchestrator import InstallerOrchestrator
+import dots_tui.logic.user_config as user_config_mod
 
 
 def _base_cfg(**kwargs: bool) -> InstallConfig:
@@ -40,11 +40,12 @@ def _read_startup(staging_config: Path) -> str:
 def test_all_optionals_disabled_still_ensures_keybinds_layout_init(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("dots_tui.logic.orchestrator.which", lambda _cmd: None)
+    monkeypatch.setattr("dots_tui.utils.which", lambda _cmd: None)
     staging_config = tmp_path / "config"
 
-    orch = InstallerOrchestrator()
-    orch._apply_user_choices(_base_cfg(), staging_config, log=lambda _line: None)
+    user_config_mod.apply_user_choices(
+        _base_cfg(), staging_config, log=lambda _line: None
+    )
 
     text = _read_startup(staging_config)
     assert "exec-once = $scriptsDir/KeybindsLayoutInit.sh\n" in text
@@ -53,11 +54,12 @@ def test_all_optionals_disabled_still_ensures_keybinds_layout_init(
 def test_all_optionals_disabled_keeps_optional_startup_entries_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("dots_tui.logic.orchestrator.which", lambda _cmd: None)
+    monkeypatch.setattr("dots_tui.utils.which", lambda _cmd: None)
     staging_config = tmp_path / "config"
 
-    orch = InstallerOrchestrator()
-    orch._apply_user_choices(_base_cfg(), staging_config, log=lambda _line: None)
+    user_config_mod.apply_user_choices(
+        _base_cfg(), staging_config, log=lambda _line: None
+    )
 
     text = _read_startup(staging_config)
     assert "exec-once = rog-control-center\n" not in text
@@ -69,13 +71,10 @@ def test_all_optionals_disabled_keeps_optional_startup_entries_absent(
 def test_optionals_enabled_with_prereqs_adds_entries_and_keeps_keybind_init(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        "dots_tui.logic.orchestrator.which", lambda _cmd: "/usr/bin/mock"
-    )
+    monkeypatch.setattr("dots_tui.utils.which", lambda _cmd: "/usr/bin/mock")
     staging_config = tmp_path / "config"
 
-    orch = InstallerOrchestrator()
-    orch._apply_user_choices(
+    user_config_mod.apply_user_choices(
         _base_cfg(
             enable_asus=True,
             enable_blueman=True,
@@ -97,7 +96,7 @@ def test_optionals_enabled_with_prereqs_adds_entries_and_keeps_keybind_init(
 def test_keybinds_layout_init_is_idempotent_on_repeated_processing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("dots_tui.logic.orchestrator.which", lambda _cmd: None)
+    monkeypatch.setattr("dots_tui.utils.which", lambda _cmd: None)
     staging_config = tmp_path / "config"
     startup = staging_config / "hypr" / "configs" / "Startup_Apps.conf"
     startup.parent.mkdir(parents=True, exist_ok=True)
@@ -105,10 +104,9 @@ def test_keybinds_layout_init_is_idempotent_on_repeated_processing(
         "exec-once = $scriptsDir/KeybindsLayoutInit.sh\n", encoding="utf-8"
     )
 
-    orch = InstallerOrchestrator()
     cfg = _base_cfg()
-    orch._apply_user_choices(cfg, staging_config, log=lambda _line: None)
-    orch._apply_user_choices(cfg, staging_config, log=lambda _line: None)
+    user_config_mod.apply_user_choices(cfg, staging_config, log=lambda _line: None)
+    user_config_mod.apply_user_choices(cfg, staging_config, log=lambda _line: None)
 
     text = _read_startup(staging_config)
     assert text.count("exec-once = $scriptsDir/KeybindsLayoutInit.sh\n") == 1

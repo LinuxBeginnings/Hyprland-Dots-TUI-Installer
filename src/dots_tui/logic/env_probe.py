@@ -20,8 +20,8 @@ the actual installation process.
 
 from __future__ import annotations
 
-import re
 import os
+import re
 from dataclasses import dataclass
 
 from dots_tui.utils import run_cmd, which

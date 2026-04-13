@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from textual import events
+from textual.app import ComposeResult
 from textual.containers import Container
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
@@ -45,7 +46,7 @@ class ConfirmScreen(ModalScreen[bool]):
         except Exception:
             pass
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield Container(
             Static(self._message, id="confirm-message"),
             Button(self._yes, id="yes", variant="success"),
