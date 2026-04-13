@@ -15,7 +15,7 @@ from dots_tui.logic.models import InstallConfig
 from dots_tui.logic.orchestrator import InstallerOrchestrator
 from dots_tui.utils import CmdResult
 
-from tests.helpers import CmdRecorder, write_text
+from tests.helpers import CmdCall, CmdRecorder, write_text
 
 
 def _seed_repo(repo_root: Path, *, include_systemd: bool = True) -> None:
@@ -85,7 +85,7 @@ class SystemdCmdRecorder(CmdRecorder):
         input_text: str | None = None,
     ) -> CmdResult:
         """Mock systemctl and pgrep commands with configurable responses."""
-        self.calls.append(type("CmdCall", (), {"argv": list(argv), "cwd": cwd})())
+        self.calls.append(CmdCall(argv=list(argv), cwd=cwd))
 
         if log is not None:
             log(f"$ {' '.join(argv)}")

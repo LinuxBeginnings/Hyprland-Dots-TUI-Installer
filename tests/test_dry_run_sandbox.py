@@ -17,13 +17,15 @@ import asyncio
 
 import pytest
 
-from dots_tui.logic.models import InstallConfig
+from dots_tui.logic.models import InstallConfig, RunMode
 from dots_tui.logic.orchestrator import InstallerOrchestrator
 
 from tests.helpers import CmdRecorder, write_text
 
 
-def _make_config(*, run_mode: str = "install", dry_run: bool = True) -> InstallConfig:
+def _make_config(
+    *, run_mode: RunMode = "install", dry_run: bool = True
+) -> InstallConfig:
     return InstallConfig(
         run_mode=run_mode,
         resolution="gte_1440p",
@@ -181,12 +183,12 @@ def test_dry_run_skips_sudo_and_external_commands(
     assert any("[DRY-RUN] Skipped: SDDM sudo operations" in line for line in logs)
 
     # Verify no sudo or xdg-user-dirs-update commands were actually executed
-    for cmd_args, _ in recorder.calls:
-        assert "sudo" not in cmd_args, (
-            f"sudo command executed during dry-run: {cmd_args}"
+    for call in recorder.calls:
+        assert "sudo" not in call.argv, (
+            f"sudo command executed during dry-run: {call.argv}"
         )
-        assert "xdg-user-dirs-update" not in cmd_args, (
-            f"xdg-user-dirs-update executed during dry-run: {cmd_args}"
+        assert "xdg-user-dirs-update" not in call.argv, (
+            f"xdg-user-dirs-update executed during dry-run: {call.argv}"
         )
 
 
