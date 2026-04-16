@@ -56,8 +56,10 @@ def test_find_most_recent_backup_mixed_formats(tmp_path: Path) -> None:
     backup2 = config_dir / "waybar-backup-01_30_0900"
     backup2.mkdir()
 
-    # Touch backup2 to make it newer
-    backup2.touch()
+    # Explicitly set mtimes so backup2 is newest — no sleep needed
+    now = time.time()
+    os.utime(backup1, (now - 10, now - 10))  # older
+    os.utime(backup2, (now, now))  # newer
 
     result = find_most_recent_backup(config_dir / "waybar")
     # Should return the newest by mtime (backup2)
