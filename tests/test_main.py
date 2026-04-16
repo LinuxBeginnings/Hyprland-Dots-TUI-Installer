@@ -1,4 +1,12 @@
+# ============================================================================
+#  KoolDots TUI Installer (2026)
+#  Project URL: https://github.com/LinuxBeginnings/Hyprland-Dots-TUI-Installer
+#  License: GNU GPLv3
+#  SPDX-License-Identifier: GPL-3.0-or-later
+# ============================================================================
 """Tests for the __main__.py CLI entry point."""
+
+from __future__ import annotations
 
 from dots_tui.__main__ import parse_args
 

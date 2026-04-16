@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from textual import events
+from textual.app import ComposeResult
 from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import Button, Static
@@ -86,7 +87,7 @@ class MenuScreen(Screen[None]):
             event.stop()
             return
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield Container(
             Static("KooL's Hyprland-Dots", id="title"),
             Button("Install", id="install", variant="success"),

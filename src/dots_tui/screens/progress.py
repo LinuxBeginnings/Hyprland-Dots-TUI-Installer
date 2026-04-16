@@ -12,6 +12,7 @@ from typing import Callable
 from pathlib import Path
 
 from textual import events, work
+from textual.app import ComposeResult
 from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import Button, Label, Log, ProgressBar, Static
@@ -63,7 +64,7 @@ class ProgressScreen(Screen[None]):
     def for_repo_download(cls) -> "ProgressScreen":
         return cls(task=ProgressTask(kind="download"))
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield Container(
             Static("Execution", id="title"),
             Label("", id="step"),

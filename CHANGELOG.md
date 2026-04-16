@@ -1,5 +1,27 @@
 ## Hyprland Dotfiles TUI Installer
 
+## 0.2.3 - 4/16/2026
+
+### Features
+- Add systemd service installation for hyprpolkitagent
+- Backup `~/.config/ghostty` before copying ghostty config
+
+### Bug Fixes
+- Sandbox `--dry-run` to prevent real filesystem modifications
+- Add system CA bundle detection for git operations in compiled binaries
+- Route dots-tui through argparse entrypoint
+- Resolve basedpyright type errors in test fixtures
+
+### Refactoring
+- Extract orchestrator.py into 7 single-responsibility modules (tweaks, systemd_services, waybar_weather, wallpaper, optional_apps, user_config, repo_ops)
+
+### Testing
+- Add unit tests for tweaks and user_config modules
+- Add ghostty backup cleanup verification to express test
+
+### CI/CD
+- Add dev-check workflow for manual testing on dev branch
+
 ## 0.2.1 - 3/14/2026
 
 ### Bug Fixes

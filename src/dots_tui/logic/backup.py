@@ -6,11 +6,10 @@
 # ============================================================================
 from __future__ import annotations
 
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
-
-import shutil
 
 from dots_tui.logic.path_safety import assert_safe_path
 from dots_tui.logic.models import LogFn, PromptConfirmFn

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 from textual import events
+from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
@@ -59,7 +60,7 @@ class ConfigScreen(Screen[None]):
             str, int
         ] = {}  # radioset_id -> previous pressed_index
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         with Container(id="config-container"):
             yield Static(f"Configuration ({self._run_mode})", id="title")
             with VerticalScroll(id="scroll"):
